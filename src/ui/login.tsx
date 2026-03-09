@@ -22,7 +22,7 @@ export function LoginPage() {
                 <path d="M2 12l10 5 10-5"/>
               </svg>
             </div>
-            <h1 class="text-2xl font-semibold tracking-tight text-white">Copilot Proxy</h1>
+            <h1 class="text-2xl font-semibold tracking-tight text-white">Copilot Gateway</h1>
             <p class="text-sm text-gray-500 mt-2 font-light">Enter your access key to continue</p>
           </div>
 

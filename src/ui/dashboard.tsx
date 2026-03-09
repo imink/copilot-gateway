@@ -24,7 +24,7 @@ export function DashboardPage() {
                   <path d="M2 12l10 5 10-5"/>
                 </svg>
               </div>
-              <span class="font-semibold text-white text-sm tracking-tight">Copilot Proxy</span>
+              <span class="font-semibold text-white text-sm tracking-tight">Copilot Gateway</span>
             </div>
 
             <div class="flex items-center gap-4">
