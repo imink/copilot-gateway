@@ -1,4 +1,4 @@
-// Login page — ACCESS_KEY input with sleek dark design
+// Login page — key input with sleek dark design
 // Stores key in localStorage, no server-side session
 
 import { html } from "hono/html";
@@ -23,20 +23,20 @@ export function LoginPage() {
               </svg>
             </div>
             <h1 class="text-2xl font-semibold tracking-tight text-white">Copilot Gateway</h1>
-            <p class="text-sm text-gray-500 mt-2 font-light">Enter your access key to continue</p>
+            <p class="text-sm text-gray-500 mt-2 font-light">Enter your key to continue</p>
           </div>
 
           <!-- Login Card -->
           <div class="glass-card p-8 glow-cyan animate-in delay-1">
-            <div class="shimmer-line mb-8 rounded-full"></div>
+            <p class="text-xs text-gray-500 mb-6 leading-relaxed">Log in with the <span class="text-gray-400">ADMIN_KEY</span> for full dashboard access, or any <span class="text-gray-400">API key</span> for limited access.</p>
 
             <form @submit.prevent="login()" class="space-y-5">
               <div>
-                <label class="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-widest">Access Key</label>
+                <label class="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-widest">Key</label>
                 <input
                   type="password"
-                  x-model="accessKey"
-                  placeholder="Enter your access key..."
+                  x-model="authKey"
+                  placeholder="Enter your key..."
                   autofocus
                   required
                 />
@@ -71,14 +71,14 @@ export function LoginPage() {
       <script>
         function loginApp() {
           return {
-            accessKey: '',
+            authKey: '',
             loading: false,
             error: '',
             init() {
               // If already have a stored key, try to verify it
-              const stored = localStorage.getItem('access_key');
+              const stored = localStorage.getItem('authKey');
               if (stored) {
-                this.accessKey = stored;
+                this.authKey = stored;
                 this.login();
               }
             },
@@ -89,13 +89,13 @@ export function LoginPage() {
                 const resp = await fetch('/auth/login', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ access_key: this.accessKey }),
+                  body: JSON.stringify({ key: this.authKey }),
                 });
                 const data = await resp.json();
                 if (data.ok) {
-                  localStorage.setItem('access_key', this.accessKey);
-                  localStorage.setItem('role', data.role || 'admin');
-                  if (data.role === 'key') {
+                  localStorage.setItem('authKey', this.authKey);
+                  localStorage.setItem('isAdmin', data.isAdmin ? '1' : '0');
+                  if (!data.isAdmin) {
                     localStorage.setItem('login_key_id', data.keyId);
                     localStorage.setItem('login_key_name', data.keyName);
                     localStorage.setItem('login_key_hint', data.keyHint);
@@ -106,8 +106,8 @@ export function LoginPage() {
                   }
                   window.location.href = '/dashboard';
                 } else {
-                  localStorage.removeItem('access_key');
-                  localStorage.removeItem('role');
+                  localStorage.removeItem('authKey');
+                  localStorage.removeItem('isAdmin');
                   this.error = data.error || 'Authentication failed';
                 }
               } catch (e) {

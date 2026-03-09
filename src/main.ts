@@ -12,8 +12,8 @@
 //   GET  /              — Login page (or JSON health check for API clients)
 //   GET  /dashboard     — Usage dashboard
 //
-// Auth: ACCESS_KEY (admin) or per-key API keys via ?key=, x-api-key, or Authorization: Bearer
-// Frontend auth: ACCESS_KEY stored in localStorage, sent as x-api-key header
+// Auth: ADMIN_KEY (dashboard) or per-key API keys via ?key=, x-api-key, or Authorization: Bearer
+// Frontend auth: key stored in localStorage as authKey, sent as x-api-key header
 
 import { Hono } from "hono";
 import { logger } from "hono/logger";
@@ -60,6 +60,7 @@ app.get("/dashboard", (c) => c.html(DashboardPage()));
 // Dashboard API
 app.get("/api/usage", copilotQuota);
 app.get("/api/token-usage", tokenUsage);
+app.get("/api/models", models);
 app.get("/api/keys", listKeys);
 app.post("/api/keys", createKey);
 app.post("/api/keys/:id/rotate", rotateKey);

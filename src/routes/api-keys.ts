@@ -1,40 +1,26 @@
-// API key management routes (admin-only)
+// API key management routes
 
 import type { Context } from "hono";
-import { createApiKey, listApiKeys, deleteApiKey, rotateApiKey } from "../lib/api-keys.ts";
+import { createApiKey, listApiKeys, deleteApiKey, rotateApiKey, type ApiKey } from "../lib/api-keys.ts";
 
 function requireAdmin(c: Context): Response | null {
-  if (c.get("apiKeyId") !== "admin") {
-    return c.json({ error: "Admin access required" }, 403);
+  if (!c.get("isAdmin")) {
+    return c.json({ error: "Dashboard key required" }, 403);
   }
   return null;
 }
 
+function keyToJson(k: ApiKey) {
+  return { id: k.id, name: k.name, key_hint: k.key.slice(-4), created_at: k.createdAt, last_used_at: k.lastUsedAt ?? null };
+}
+
 export const listKeys = (c: Context) => {
-  const callerId = c.get("apiKeyId");
+  const isAdmin = c.get("isAdmin");
+  const apiKeyId = c.get("apiKeyId");
 
-  if (callerId === "admin") {
-    return listApiKeys().then((keys) =>
-      c.json(keys.map((k) => ({
-        id: k.id,
-        name: k.name,
-        key_hint: k.key.slice(-4),
-        created_at: k.createdAt,
-        last_used_at: k.lastUsedAt ?? null,
-      })))
-    );
-  }
-
-  // Non-admin: return only the caller's own key
   return listApiKeys().then((keys) => {
-    const own = keys.filter((k) => k.id === callerId);
-    return c.json(own.map((k) => ({
-      id: k.id,
-      name: k.name,
-      key_hint: k.key.slice(-4),
-      created_at: k.createdAt,
-      last_used_at: k.lastUsedAt ?? null,
-    })));
+    const visible = isAdmin ? keys : keys.filter((k) => k.id === apiKeyId);
+    return c.json(visible.map(keyToJson));
   });
 };
 

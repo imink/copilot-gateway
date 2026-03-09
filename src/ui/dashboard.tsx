@@ -69,7 +69,7 @@ export function DashboardPage() {
 
         <main class="max-w-6xl mx-auto px-6 py-8">
 
-          <!-- ===================== TAB: UPSTREAM (admin only) ===================== -->
+          <!-- ===================== TAB: UPSTREAM (ADMIN_KEY only) ===================== -->
           <template x-if="isAdmin">
           <div x-show="tab === 'upstream'" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100">
 
@@ -527,8 +527,7 @@ export function DashboardPage() {
 
       <script>
         function dashboardApp() {
-          const role = localStorage.getItem('role') || 'admin';
-          const isAdmin = role === 'admin';
+          const isAdmin = localStorage.getItem('isAdmin') === '1';
           const TABS = isAdmin ? ['upstream', 'keys', 'usage'] : ['keys', 'usage'];
           const defaultTab = isAdmin ? 'upstream' : 'keys';
           const initTab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : defaultTab;
@@ -557,8 +556,7 @@ export function DashboardPage() {
           }
 
           return {
-            accessKey: '',
-            role,
+            authKey: '',
             isAdmin,
             tab: initTab,
 
@@ -600,7 +598,7 @@ export function DashboardPage() {
 
             get baseUrl() { return location.origin; },
 
-            get activeKey() { return this.isAdmin ? (this.newKeyResult?.key || '<your-api-key>') : this.accessKey; },
+            get activeKey() { return this.isAdmin ? (this.newKeyResult?.key || '<your-api-key>') : this.authKey; },
 
             timeAgo(dateStr) {
               if (!dateStr) return null;
@@ -654,8 +652,8 @@ export function DashboardPage() {
             },
 
             init() {
-              this.accessKey = localStorage.getItem('access_key') || '';
-              if (!this.accessKey) { window.location.href = '/'; return; }
+              this.authKey = localStorage.getItem('authKey') || '';
+              if (!this.authKey) { window.location.href = '/'; return; }
 
               if (this.isAdmin) {
                 this.loadMe();
@@ -681,7 +679,7 @@ export function DashboardPage() {
               });
             },
 
-            authHeaders() { return { 'x-api-key': this.accessKey }; },
+            authHeaders() { return { 'x-api-key': this.authKey }; },
 
             async switchTab(t) {
               if (t !== 'usage' && this.tokenChart) {
@@ -703,7 +701,7 @@ export function DashboardPage() {
 
             async loadModels() {
               try {
-                const resp = await fetch('/v1/models', { headers: this.authHeaders() });
+                const resp = await fetch('/api/models', { headers: this.authHeaders() });
                 if (!resp.ok) return;
                 const { data } = await resp.json();
 
@@ -932,7 +930,7 @@ export function DashboardPage() {
               const isDaily = this.tokenRange !== 'today';
               const data = this.tokenData;
 
-              const keyNameMap = new Map([['admin', 'admin']]);
+              const keyNameMap = new Map();
               for (const k of this.keys) keyNameMap.set(k.id, k.name);
 
               let totalReqs = 0, totalIn = 0, totalOut = 0;
@@ -1011,8 +1009,8 @@ export function DashboardPage() {
             switchTokenRange(range) { this.tokenRange = range; this.loadTokenUsage(); },
 
             // ---- Common ----
-            logout() { localStorage.removeItem('access_key'); localStorage.removeItem('role'); localStorage.removeItem('login_key_id'); localStorage.removeItem('login_key_name'); localStorage.removeItem('login_key_hint'); window.location.href = '/'; },
-            kickToLogin() { localStorage.removeItem('access_key'); localStorage.removeItem('role'); localStorage.removeItem('login_key_id'); localStorage.removeItem('login_key_name'); localStorage.removeItem('login_key_hint'); window.location.href = '/'; }
+            logout() { localStorage.removeItem('authKey'); localStorage.removeItem('isAdmin'); localStorage.removeItem('login_key_id'); localStorage.removeItem('login_key_name'); localStorage.removeItem('login_key_hint'); window.location.href = '/'; },
+            kickToLogin() { localStorage.removeItem('authKey'); localStorage.removeItem('isAdmin'); localStorage.removeItem('login_key_id'); localStorage.removeItem('login_key_name'); localStorage.removeItem('login_key_hint'); window.location.href = '/'; }
           }
         }
       </script>`,

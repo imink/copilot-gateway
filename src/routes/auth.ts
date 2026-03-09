@@ -1,5 +1,5 @@
-// Auth routes — ACCESS_KEY validation + GitHub Device Flow OAuth
-// Supports admin login (ACCESS_KEY) and API key login (restricted dashboard access)
+// Auth routes — ADMIN_KEY validation + GitHub Device Flow OAuth
+// Supports login with ADMIN_KEY (full dashboard access) or API key (restricted)
 // No sessions, no cookies. All auth via key in every request.
 
 import type { Context } from "hono";
@@ -17,30 +17,37 @@ import { validateApiKey } from "../lib/api-keys.ts";
 const GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 const GITHUB_SCOPES = "read:user";
 
-/** POST /auth/login — validate ACCESS_KEY or API key */
+function requireAdmin(c: Context): Response | null {
+  if (!c.get("isAdmin")) {
+    return c.json({ error: "Dashboard key required" }, 403);
+  }
+  return null;
+}
+
+/** POST /auth/login — validate ADMIN_KEY or API key */
 export const authLogin = async (c: Context) => {
   try {
-    const body = await c.req.json<{ access_key: string }>();
-    const expectedKey = getEnv("ACCESS_KEY");
+    const body = await c.req.json<{ key: string }>();
+    const adminKey = getEnv("ADMIN_KEY");
 
-    // Admin login
-    if (expectedKey && body.access_key === expectedKey) {
-      return c.json({ ok: true, role: "admin" });
+    // ADMIN_KEY login
+    if (adminKey && body.key === adminKey) {
+      return c.json({ ok: true, isAdmin: true });
     }
 
     // API key login
-    const result = await validateApiKey(body.access_key);
+    const result = await validateApiKey(body.key);
     if (result) {
       return c.json({
         ok: true,
-        role: "key",
+        isAdmin: false,
         keyId: result.id,
         keyName: result.name,
-        keyHint: body.access_key.slice(-4),
+        keyHint: body.key.slice(-4),
       });
     }
 
-    return c.json({ error: "Invalid access key" }, 401);
+    return c.json({ error: "Invalid key" }, 401);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return c.json({ error: msg }, 500);
@@ -53,9 +60,10 @@ export const authLogout = (_c: Context) => {
   return _c.json({ ok: true });
 };
 
-/** GET /auth/github — start GitHub Device Flow (admin only) */
+/** GET /auth/github — start GitHub Device Flow */
 export const authGithub = async (c: Context) => {
-  if (c.get("apiKeyId") !== "admin") return c.json({ error: "Admin access required" }, 403);
+  const denied = requireAdmin(c);
+  if (denied) return denied;
   try {
     const resp = await fetch("https://github.com/login/device/code", {
       method: "POST",
@@ -89,9 +97,10 @@ export const authGithub = async (c: Context) => {
   }
 };
 
-/** POST /auth/github/poll — poll for device flow completion (admin only) */
+/** POST /auth/github/poll — poll for device flow completion */
 export const authGithubPoll = async (c: Context) => {
-  if (c.get("apiKeyId") !== "admin") return c.json({ error: "Admin access required" }, 403);
+  const denied = requireAdmin(c);
+  if (denied) return denied;
   try {
     const body = await c.req.json<{ device_code: string }>();
 
@@ -168,9 +177,10 @@ export const authGithubPoll = async (c: Context) => {
   }
 };
 
-/** GET /auth/me — get current GitHub connection info (admin only) */
+/** GET /auth/me — get current GitHub connection info */
 export const authMe = async (c: Context) => {
-  if (c.get("apiKeyId") !== "admin") return c.json({ error: "Admin access required" }, 403);
+  const denied = requireAdmin(c);
+  if (denied) return denied;
   const globalToken = await getGithubToken();
   const githubConnected = !!globalToken;
   let user = githubConnected ? await getGlobalGithubUser() : null;
@@ -201,9 +211,10 @@ export const authMe = async (c: Context) => {
   });
 };
 
-/** POST /auth/github/disconnect — disconnect GitHub account (admin only) */
+/** POST /auth/github/disconnect — disconnect GitHub account */
 export const authGithubDisconnect = async (c: Context) => {
-  if (c.get("apiKeyId") !== "admin") return c.json({ error: "Admin access required" }, 403);
+  const denied = requireAdmin(c);
+  if (denied) return denied;
   await clearGithubConnection();
   return c.json({ ok: true });
 };

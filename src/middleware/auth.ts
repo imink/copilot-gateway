@@ -5,6 +5,9 @@ import { validateApiKey } from "../lib/api-keys.ts";
 const PUBLIC_PATHS = new Set(["/", "/dashboard"]);
 const AUTH_VALIDATE_PATHS = new Set(["/auth/login"]);
 
+// ADMIN_KEY is only allowed on dashboard/management paths
+const DASHBOARD_PREFIXES = ["/api/", "/auth/"];
+
 export const authMiddleware = async (c: Context, next: Next) => {
   const path = c.req.path;
 
@@ -14,16 +17,20 @@ export const authMiddleware = async (c: Context, next: Next) => {
   const key = extractKey(c);
   if (!key) return c.json({ error: "Unauthorized" }, 401);
 
-  // Admin key (ACCESS_KEY env var) — backward compatible
-  const adminKey = getEnv("ACCESS_KEY");
+  // ADMIN_KEY — dashboard/management only
+  const adminKey = getEnv("ADMIN_KEY");
   if (adminKey && key === adminKey) {
-    c.set("apiKeyId", "admin");
-    return next();
+    c.set("authKey", key);
+    c.set("isAdmin", true);
+    if (DASHBOARD_PREFIXES.some((p) => path.startsWith(p))) return next();
+    return c.json({ error: "This key is for dashboard only. Create an API key for API access." }, 403);
   }
 
-  // Multi-key lookup
+  // API key — full access
   const result = await validateApiKey(key);
   if (result) {
+    c.set("authKey", key);
+    c.set("isAdmin", false);
     c.set("apiKeyId", result.id);
     return next();
   }
