@@ -1,4 +1,4 @@
-// Dashboard page — two-tab layout: Upstream (GitHub/Copilot) vs API Keys
+// Dashboard page — three-tab layout: Upstream / API Keys / Usage
 // All API calls authenticated via x-api-key header from localStorage
 
 import { html } from "hono/html";
@@ -50,6 +50,11 @@ export function DashboardPage() {
                 class="px-4 py-2 rounded-md text-sm font-medium transition-all"
                 :class="tab === 'keys' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
                 API Keys
+              </button>
+              <button @click="switchTab('usage')"
+                class="px-4 py-2 rounded-md text-sm font-medium transition-all"
+                :class="tab === 'usage' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
+                Usage
               </button>
             </nav>
           </div>
@@ -277,8 +282,8 @@ export function DashboardPage() {
                   </div>
                   <div class="flex items-center gap-2 mb-2">
                     <code class="flex-1 text-xs font-mono text-gray-300 bg-surface-900 rounded-lg px-3 py-2 break-all select-all" x-text="newKeyResult.key"></code>
-                    <button @click="copyToClipboard(newKeyResult.key)" class="btn-ghost text-xs px-3 py-2 shrink-0">
-                      <span x-text="copied ? 'Copied!' : 'Copy'"></span>
+                    <button @click="copySnippet(newKeyResult.key, 'key')" class="btn-ghost text-xs px-3 py-2 shrink-0">
+                      <span x-text="copied === 'key' ? 'Copied!' : 'Copy'"></span>
                     </button>
                   </div>
                   <p class="text-xs text-accent-amber">Save this key now — it won't be shown again.</p>
@@ -345,8 +350,121 @@ export function DashboardPage() {
               </div>
             </div>
 
-            <!-- Token Usage Chart -->
+            <!-- Configuration Guide -->
             <div class="glass-card p-6 animate-in delay-1">
+              <span class="text-xs font-medium text-gray-500 uppercase tracking-widest">Configuration</span>
+              <template x-if="newKeyResult">
+                <p class="text-xs text-accent-cyan mt-2 flex items-center gap-1.5">
+                  <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                  Configs below use your newly created key. Copy them before dismissing.
+                </p>
+              </template>
+
+              <!-- Loading skeleton -->
+              <template x-if="!modelsLoaded">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
+                  <div class="space-y-3">
+                    <div class="h-5 w-28 bg-surface-600 rounded animate-pulse"></div>
+                    <div class="h-7 w-40 bg-surface-600 rounded animate-pulse"></div>
+                    <div class="h-32 bg-surface-600 rounded-xl animate-pulse"></div>
+                  </div>
+                  <div class="space-y-3">
+                    <div class="h-5 w-20 bg-surface-600 rounded animate-pulse"></div>
+                    <div class="h-7 w-40 bg-surface-600 rounded animate-pulse"></div>
+                    <div class="h-32 bg-surface-600 rounded-xl animate-pulse"></div>
+                  </div>
+                </div>
+              </template>
+
+              <template x-if="modelsLoaded">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
+                  <!-- Claude Code -->
+                  <div>
+                    <div class="mb-3">
+                      <span class="text-sm font-semibold text-white">Claude Code</span>
+                    </div>
+
+                    <!-- Model selectors -->
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3">
+                      <div class="flex items-center gap-2">
+                        <label class="text-xs text-gray-500">Model:</label>
+                        <select x-model="claudeModel"
+                          class="text-xs font-mono bg-surface-800 text-gray-300 border border-white/10 rounded-lg px-2 py-1.5 outline-none focus:border-accent-cyan/50 cursor-pointer">
+                          <template x-for="m in claudeModelsBig" :key="m">
+                            <option :value="m" x-text="m"></option>
+                          </template>
+                        </select>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <label class="text-xs text-gray-500">Small/fast:</label>
+                        <select x-model="claudeSmallModel"
+                          class="text-xs font-mono bg-surface-800 text-gray-300 border border-white/10 rounded-lg px-2 py-1.5 outline-none focus:border-accent-cyan/50 cursor-pointer">
+                          <template x-for="m in claudeModelsSmall" :key="m">
+                            <option :value="m" x-text="m"></option>
+                          </template>
+                        </select>
+                      </div>
+                    </div>
+
+                    <p class="text-[11px] text-gray-600 mb-2">Add to <code class="text-gray-500">~/.bashrc</code>, <code class="text-gray-500">~/.zshrc</code>, or equivalent</p>
+                    <div class="relative group">
+                      <pre class="bg-surface-900 rounded-xl p-4 pr-10 overflow-x-auto border border-white/[0.04]"><code class="language-bash" x-ref="claudeCode" x-effect="$el.textContent = claudeCodeSnippet(); Prism.highlightElement($el)"></code></pre>
+                      <button @click="copySnippet(claudeCodeSnippet(), 'claude')"
+                        class="absolute top-2.5 right-2.5 p-1.5 rounded-md bg-surface-700/80 text-gray-500 hover:text-accent-cyan hover:bg-surface-600 transition-all opacity-0 group-hover:opacity-100"
+                        :title="copied === 'claude' ? 'Copied!' : 'Copy'">
+                        <svg x-show="copied !== 'claude'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        <svg x-show="copied === 'claude'" class="w-3.5 h-3.5 text-accent-emerald" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Codex -->
+                  <div>
+                    <div class="mb-3">
+                      <span class="text-sm font-semibold text-white">Codex</span>
+                    </div>
+
+                    <!-- Model selector -->
+                    <div class="flex items-center gap-2 mb-3">
+                      <label class="text-xs text-gray-500">Model:</label>
+                      <select x-model="codexModel"
+                        class="text-xs font-mono bg-surface-800 text-gray-300 border border-white/10 rounded-lg px-2 py-1.5 outline-none focus:border-accent-cyan/50 cursor-pointer">
+                        <template x-for="m in codexModels" :key="m">
+                          <option :value="m" x-text="m"></option>
+                        </template>
+                      </select>
+                    </div>
+
+                    <p class="text-[11px] text-gray-600 mb-2">Add to <code class="text-gray-500">~/.codex/config.toml</code></p>
+                    <div class="relative group">
+                      <pre class="bg-surface-900 rounded-xl p-4 pr-10 overflow-x-auto border border-white/[0.04]"><code class="language-toml" x-ref="codexCode" x-effect="$el.textContent = codexSnippet(); Prism.highlightElement($el)"></code></pre>
+                      <button @click="copySnippet(codexSnippet(), 'codex')"
+                        class="absolute top-2.5 right-2.5 p-1.5 rounded-md bg-surface-700/80 text-gray-500 hover:text-accent-cyan hover:bg-surface-600 transition-all opacity-0 group-hover:opacity-100"
+                        :title="copied === 'codex' ? 'Copied!' : 'Copy'">
+                        <svg x-show="copied !== 'codex'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        <svg x-show="copied === 'codex'" class="w-3.5 h-3.5 text-accent-emerald" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                      </button>
+                    </div>
+
+                    <p class="text-[11px] text-gray-600 mt-4 mb-2">Add to <code class="text-gray-500">~/.bashrc</code>, <code class="text-gray-500">~/.zshrc</code>, or equivalent</p>
+                    <div class="relative group">
+                      <pre class="bg-surface-900 rounded-xl p-4 pr-10 overflow-x-auto border border-white/[0.04]"><code class="language-bash" x-ref="codexEnv" x-effect="$el.textContent = codexEnvSnippet(); Prism.highlightElement($el)"></code></pre>
+                      <button @click="copySnippet(codexEnvSnippet(), 'codexEnv')"
+                        class="absolute top-2.5 right-2.5 p-1.5 rounded-md bg-surface-700/80 text-gray-500 hover:text-accent-cyan hover:bg-surface-600 transition-all opacity-0 group-hover:opacity-100"
+                        :title="copied === 'codexEnv' ? 'Copied!' : 'Copy'">
+                        <svg x-show="copied !== 'codexEnv'" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        <svg x-show="copied === 'codexEnv'" class="w-3.5 h-3.5 text-accent-emerald" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- ===================== TAB: USAGE ===================== -->
+          <div x-show="tab === 'usage'">
+            <div class="glass-card p-6 animate-in">
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <div class="flex items-center gap-3">
                   <span class="text-xs font-medium text-gray-500 uppercase tracking-widest">Token Usage</span>
@@ -357,25 +475,22 @@ export function DashboardPage() {
                     </svg>
                   </template>
                 </div>
-                <div class="flex items-center gap-3">
-                  <!-- Range toggle -->
-                  <div class="flex items-center gap-1 bg-surface-800 rounded-lg p-0.5">
-                    <button @click="switchTokenRange('today')"
-                      class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-                      :class="tokenRange === 'today' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
-                      Today
-                    </button>
-                    <button @click="switchTokenRange('7d')"
-                      class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-                      :class="tokenRange === '7d' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
-                      7 Days
-                    </button>
-                    <button @click="switchTokenRange('30d')"
-                      class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-                      :class="tokenRange === '30d' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
-                      30 Days
-                    </button>
-                  </div>
+                <div class="flex items-center gap-1 bg-surface-800 rounded-lg p-0.5">
+                  <button @click="switchTokenRange('today')"
+                    class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                    :class="tokenRange === 'today' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
+                    Today
+                  </button>
+                  <button @click="switchTokenRange('7d')"
+                    class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                    :class="tokenRange === '7d' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
+                    7 Days
+                  </button>
+                  <button @click="switchTokenRange('30d')"
+                    class="px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                    :class="tokenRange === '30d' ? 'bg-surface-600 text-white' : 'text-gray-500 hover:text-gray-300'">
+                    30 Days
+                  </button>
                 </div>
               </div>
 
@@ -404,27 +519,51 @@ export function DashboardPage() {
         </main>
       </div>
 
+      <style>
+        select option { background: #13181f; color: #e0e0e0; }
+      </style>
+
       <script>
         function dashboardApp() {
+          const TABS = ['upstream', 'keys', 'usage'];
+          const initTab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'upstream';
+
+          // Claude tier order: opus=0, sonnet=1, haiku=2
+          const CLAUDE_TIER = { opus: 0, sonnet: 1, haiku: 2 };
+          function claudeTier(id) {
+            for (const t in CLAUDE_TIER) { if (id.includes(t)) return CLAUDE_TIER[t]; }
+            return 99;
+          }
+          // Big model sort: opus first, within tier reverse alpha (larger version first)
+          function sortClaudeBig(a, b) {
+            const ta = claudeTier(a), tb = claudeTier(b);
+            return ta !== tb ? ta - tb : b.localeCompare(a);
+          }
+          // Small model sort: haiku first, within tier reverse alpha
+          function sortClaudeSmall(a, b) {
+            const ta = claudeTier(a), tb = claudeTier(b);
+            return ta !== tb ? tb - ta : b.localeCompare(a);
+          }
+          // Codex sort: non-mini first, within group reverse alpha
+          function sortCodex(a, b) {
+            const am = a.includes('mini') ? 1 : 0;
+            const bm = b.includes('mini') ? 1 : 0;
+            return am !== bm ? am - bm : b.localeCompare(a);
+          }
+
           return {
             accessKey: '',
-            tab: location.hash === '#keys' ? 'keys' : 'upstream',
+            tab: initTab,
 
-            // Upstream state
+            // Upstream
             user: null,
             githubConnected: false,
             usageData: null,
             usageError: false,
             usagePercent: 0,
-            deviceFlow: {
-              loading: false,
-              userCode: null,
-              verificationUri: null,
-              deviceCode: null,
-              pollTimer: null,
-            },
+            deviceFlow: { loading: false, userCode: null, verificationUri: null, deviceCode: null, pollTimer: null },
 
-            // Keys state
+            // Keys
             keys: [],
             keysLoading: false,
             newKeyName: '',
@@ -434,59 +573,123 @@ export function DashboardPage() {
             keyRotating: null,
             copied: false,
 
-            // Token usage state
+            // Config — no defaults, populated by loadModels
+            modelsLoaded: false,
+            claudeModelsBig: [],
+            claudeModelsSmall: [],
+            claudeModel: '',
+            claudeSmallModel: '',
+            codexModels: [],
+            codexModel: '',
+
+            // Token usage
             tokenRange: 'today',
             tokenData: [],
             tokenChart: null,
             tokenLoading: false,
             tokenSummary: { requests: 0, input: 0, output: 0 },
 
+            get baseUrl() { return location.origin; },
+
+            get activeKey() { return this.newKeyResult?.key || '<your-api-key>'; },
+
+            claudeCodeSnippet() {
+              const lines = [
+                'export ANTHROPIC_BASE_URL=' + this.baseUrl,
+                'export ANTHROPIC_AUTH_TOKEN=' + this.activeKey,
+                'export ANTHROPIC_MODEL=' + this.claudeModel,
+                'export ANTHROPIC_SMALL_FAST_MODEL=' + this.claudeSmallModel,
+              ];
+              return lines.join('\\n');
+            },
+
+            codexSnippet() {
+              const lines = [
+                'model = "' + this.codexModel + '"',
+                'model_provider = "copilot_gateway"',
+                '',
+                '[model_providers.copilot_gateway]',
+                'name = "Copilot Gateway"',
+                'base_url = "' + this.baseUrl + '/"',
+                'env_key = "COPILOT_GATEWAY_API_KEY"',
+                'wire_api = "responses"',
+              ];
+              return lines.join('\\n');
+            },
+
+            codexEnvSnippet() {
+              return 'export COPILOT_GATEWAY_API_KEY=' + this.activeKey;
+            },
+
             init() {
               this.accessKey = localStorage.getItem('access_key') || '';
-              if (!this.accessKey) {
-                window.location.href = '/';
-                return;
-              }
+              if (!this.accessKey) { window.location.href = '/'; return; }
+
               this.loadMe();
               this.loadUsage();
+              this.loadModels();
               this.loadKeys().then(() => {
-                if (this.tab === 'keys') {
-                  this.loadTokenUsage();
-                } else {
-                  this.fetchTokenData();
-                }
+                if (this.tab === 'usage') this.loadTokenUsage();
+                else this.fetchTokenData();
               });
+
               setInterval(() => {
                 this.loadUsage();
-                if (this.tab === 'keys') this.loadTokenUsage();
+                if (this.tab === 'usage') this.loadTokenUsage();
               }, 60000);
 
-              // Hash change listener
               window.addEventListener('hashchange', () => {
-                const h = location.hash === '#keys' ? 'keys' : 'upstream';
+                const h = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'upstream';
                 if (this.tab !== h) this.switchTab(h);
               });
             },
 
-            authHeaders() {
-              return { 'x-api-key': this.accessKey };
-            },
+            authHeaders() { return { 'x-api-key': this.accessKey }; },
 
             async switchTab(t) {
-              if (t !== 'keys' && this.tokenChart) {
+              if (t !== 'usage' && this.tokenChart) {
                 this.tokenChart.stop();
                 this.tokenChart.destroy();
                 this.tokenChart = null;
               }
               this.tab = t;
-              location.hash = t === 'keys' ? '#keys' : '#upstream';
-              if (t === 'keys') {
+              location.hash = '#' + t;
+              if (t === 'usage') {
                 await this.loadKeys();
                 await this.loadTokenUsage();
+              } else if (t === 'keys') {
+                await this.loadKeys();
               }
             },
 
-            // ---- Upstream methods ----
+            // ---- Models ----
+
+            async loadModels() {
+              try {
+                const resp = await fetch('/v1/models', { headers: this.authHeaders() });
+                if (!resp.ok) return;
+                const { data } = await resp.json();
+
+                const claudeAll = data
+                  .filter(m => m.id.startsWith('claude-') && m.supported_endpoints?.includes('/v1/messages'))
+                  .map(m => m.id);
+
+                this.claudeModelsBig = [...claudeAll].sort(sortClaudeBig);
+                this.claudeModelsSmall = [...claudeAll].sort(sortClaudeSmall);
+                this.claudeModel = this.claudeModelsBig[0] || '';
+                this.claudeSmallModel = this.claudeModelsSmall[0] || '';
+
+                this.codexModels = data
+                  .filter(m => m.supported_endpoints?.includes('/responses'))
+                  .map(m => m.id)
+                  .sort(sortCodex);
+                this.codexModel = this.codexModels[0] || '';
+
+                this.modelsLoaded = true;
+              } catch {}
+            },
+
+            // ---- Upstream ----
 
             async loadMe() {
               try {
@@ -495,9 +698,7 @@ export function DashboardPage() {
                 const data = await resp.json();
                 this.githubConnected = data.github_connected;
                 this.user = data.user;
-              } catch (e) {
-                console.error('Failed to load user info:', e);
-              }
+              } catch (e) { console.error('loadMe:', e); }
             },
 
             async loadUsage() {
@@ -508,21 +709,14 @@ export function DashboardPage() {
                   this.usageData = await resp.json();
                   const pi = this.usageData.quota_snapshots.premium_interactions;
                   this.usagePercent = pi.entitlement > 0
-                    ? Math.round(((pi.entitlement - pi.remaining) / pi.entitlement) * 100)
-                    : 0;
+                    ? Math.round(((pi.entitlement - pi.remaining) / pi.entitlement) * 100) : 0;
                   this.usageError = false;
-                } else {
-                  this.usageError = true;
-                }
-              } catch (e) {
-                this.usageError = true;
-              }
+                } else { this.usageError = true; }
+              } catch { this.usageError = true; }
             },
 
-            formatDate(dateStr) {
-              if (!dateStr) return '';
-              const d = new Date(dateStr);
-              return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            formatDate(s) {
+              return s ? new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
             },
 
             async startGithubAuth() {
@@ -530,18 +724,13 @@ export function DashboardPage() {
               try {
                 const resp = await fetch('/auth/github', { headers: this.authHeaders() });
                 if (resp.status === 401) { this.kickToLogin(); return; }
-                const data = await resp.json();
-                if (data.user_code) {
-                  this.deviceFlow.userCode = data.user_code;
-                  this.deviceFlow.verificationUri = data.verification_uri;
-                  this.deviceFlow.deviceCode = data.device_code;
-                  this.pollDeviceFlow(data.interval || 5);
+                const d = await resp.json();
+                if (d.user_code) {
+                  Object.assign(this.deviceFlow, { userCode: d.user_code, verificationUri: d.verification_uri, deviceCode: d.device_code });
+                  this.pollDeviceFlow(d.interval || 5);
                 }
-              } catch (e) {
-                console.error('Failed to start device flow:', e);
-              } finally {
-                this.deviceFlow.loading = false;
-              }
+              } catch (e) { console.error('startGithubAuth:', e); }
+              finally { this.deviceFlow.loading = false; }
             },
 
             pollDeviceFlow(interval) {
@@ -553,36 +742,29 @@ export function DashboardPage() {
                     body: JSON.stringify({ device_code: this.deviceFlow.deviceCode }),
                   });
                   if (resp.status === 401) { this.kickToLogin(); return; }
-                  const data = await resp.json();
-                  if (data.status === 'complete') {
+                  const d = await resp.json();
+                  if (d.status === 'complete') {
                     this.cancelDeviceFlow();
-                    this.user = data.user;
+                    this.user = d.user;
                     this.githubConnected = true;
                     await this.loadUsage();
-                  } else if (data.status === 'slow_down') {
+                  } else if (d.status === 'slow_down') {
                     clearInterval(this.deviceFlow.pollTimer);
-                    this.pollDeviceFlow((data.interval || interval) + 1);
-                  } else if (data.status === 'error') {
+                    this.pollDeviceFlow((d.interval || interval) + 1);
+                  } else if (d.status === 'error') {
                     this.cancelDeviceFlow();
-                    alert('Authorization failed: ' + data.error);
+                    alert('Authorization failed: ' + d.error);
                   }
-                } catch (e) {
-                  console.error('Poll error:', e);
-                }
+                } catch (e) { console.error('poll:', e); }
               }, interval * 1000);
             },
 
             cancelDeviceFlow() {
-              if (this.deviceFlow.pollTimer) {
-                clearInterval(this.deviceFlow.pollTimer);
-                this.deviceFlow.pollTimer = null;
-              }
-              this.deviceFlow.userCode = null;
-              this.deviceFlow.verificationUri = null;
-              this.deviceFlow.deviceCode = null;
+              clearInterval(this.deviceFlow.pollTimer);
+              Object.assign(this.deviceFlow, { pollTimer: null, userCode: null, verificationUri: null, deviceCode: null });
             },
 
-            // ---- Key management methods ----
+            // ---- Key management ----
 
             async loadKeys() {
               this.keysLoading = true;
@@ -590,11 +772,8 @@ export function DashboardPage() {
                 const resp = await fetch('/api/keys', { headers: this.authHeaders() });
                 if (resp.status === 401) { this.kickToLogin(); return; }
                 if (resp.ok) this.keys = await resp.json();
-              } catch (e) {
-                console.error('Failed to load keys:', e);
-              } finally {
-                this.keysLoading = false;
-              }
+              } catch (e) { console.error('loadKeys:', e); }
+              finally { this.keysLoading = false; }
             },
 
             async createNewKey() {
@@ -609,267 +788,168 @@ export function DashboardPage() {
                 });
                 if (resp.status === 401) { this.kickToLogin(); return; }
                 if (resp.ok) {
-                  const data = await resp.json();
-                  this.newKeyResult = data;
+                  this.newKeyResult = await resp.json();
                   this.newKeyName = '';
                   await this.loadKeys();
                 } else {
-                  const err = await resp.json();
-                  alert(err.error || 'Failed to create key');
+                  alert((await resp.json()).error || 'Failed to create key');
                 }
-              } catch (e) {
-                console.error('Failed to create key:', e);
-              } finally {
-                this.keyCreating = false;
-              }
+              } catch (e) { console.error('createKey:', e); }
+              finally { this.keyCreating = false; }
             },
 
             async deleteKeyById(id, name) {
               if (!confirm('Delete key "' + name + '"? This cannot be undone.')) return;
               this.keyDeleting = id;
               try {
-                const resp = await fetch('/api/keys/' + id, {
-                  method: 'DELETE',
-                  headers: this.authHeaders(),
-                });
-                if (resp.status === 401) { this.kickToLogin(); return; }
+                await fetch('/api/keys/' + id, { method: 'DELETE', headers: this.authHeaders() });
                 await this.loadKeys();
-              } catch (e) {
-                console.error('Failed to delete key:', e);
-              } finally {
-                this.keyDeleting = null;
-              }
+              } catch (e) { console.error('deleteKey:', e); }
+              finally { this.keyDeleting = null; }
             },
 
             async rotateKeyById(id, name) {
               if (!confirm('Rotate key "' + name + '"? The old key will stop working immediately.')) return;
               this.keyRotating = id;
               try {
-                const resp = await fetch('/api/keys/' + id + '/rotate', {
-                  method: 'POST',
-                  headers: this.authHeaders(),
-                });
+                const resp = await fetch('/api/keys/' + id + '/rotate', { method: 'POST', headers: this.authHeaders() });
                 if (resp.status === 401) { this.kickToLogin(); return; }
                 if (resp.ok) {
-                  const data = await resp.json();
-                  this.newKeyResult = data;
+                  this.newKeyResult = await resp.json();
                   await this.loadKeys();
                 } else {
-                  const err = await resp.json();
-                  alert(err.error || 'Failed to rotate key');
+                  alert((await resp.json()).error || 'Failed to rotate key');
                 }
-              } catch (e) {
-                console.error('Failed to rotate key:', e);
-              } finally {
-                this.keyRotating = null;
-              }
+              } catch (e) { console.error('rotateKey:', e); }
+              finally { this.keyRotating = null; }
             },
 
-            async copyToClipboard(text) {
-              try {
-                await navigator.clipboard.writeText(text);
-                this.copied = true;
-                setTimeout(() => { this.copied = false; }, 2000);
-              } catch {
-                // Fallback
+            async copySnippet(text, tag) {
+              try { await navigator.clipboard.writeText(text); }
+              catch {
                 const ta = document.createElement('textarea');
-                ta.value = text; document.body.appendChild(ta);
-                ta.select(); document.execCommand('copy');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
                 document.body.removeChild(ta);
-                this.copied = true;
-                setTimeout(() => { this.copied = false; }, 2000);
               }
+              this.copied = tag;
+              setTimeout(() => { this.copied = false; }, 2000);
             },
 
-            // ---- Token usage methods ----
+            // ---- Token usage ----
 
-            // Format a Date to local "YYYY-MM-DDTHH" string (no UTC conversion)
             localHourKey(d) {
-              const Y = d.getFullYear();
-              const M = String(d.getMonth() + 1).padStart(2, '0');
-              const D = String(d.getDate()).padStart(2, '0');
-              const H = String(d.getHours()).padStart(2, '0');
-              return Y + '-' + M + '-' + D + 'T' + H;
+              const p = n => String(n).padStart(2, '0');
+              return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + 'T' + p(d.getHours());
             },
             localDateKey(d) {
-              const Y = d.getFullYear();
-              const M = String(d.getMonth() + 1).padStart(2, '0');
-              const D = String(d.getDate()).padStart(2, '0');
-              return Y + '-' + M + '-' + D;
+              const p = n => String(n).padStart(2, '0');
+              return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate());
             },
 
             async fetchTokenData() {
               this.tokenLoading = true;
               try {
                 const now = new Date();
-                let start, end;
-                if (this.tokenRange === 'today') {
-                  const d = new Date(now); d.setHours(0,0,0,0);
-                  start = d.toISOString().slice(0,13);
-                  end = new Date(now.getTime() + 3600000).toISOString().slice(0,13);
-                } else if (this.tokenRange === '7d') {
-                  const d = new Date(now); d.setDate(d.getDate() - 6); d.setHours(0,0,0,0);
-                  start = d.toISOString().slice(0,13);
-                  end = new Date(now.getTime() + 3600000).toISOString().slice(0,13);
-                } else {
-                  const d = new Date(now); d.setDate(d.getDate() - 29); d.setHours(0,0,0,0);
-                  start = d.toISOString().slice(0,13);
-                  end = new Date(now.getTime() + 3600000).toISOString().slice(0,13);
-                }
-                let url = '/api/token-usage?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
-                const resp = await fetch(url, { headers: this.authHeaders() });
+                const rangeStart = new Date(now);
+                if (this.tokenRange === 'today') rangeStart.setHours(0,0,0,0);
+                else if (this.tokenRange === '7d') { rangeStart.setDate(rangeStart.getDate()-6); rangeStart.setHours(0,0,0,0); }
+                else { rangeStart.setDate(rangeStart.getDate()-29); rangeStart.setHours(0,0,0,0); }
+                const start = rangeStart.toISOString().slice(0,13);
+                const end = new Date(now.getTime()+3600000).toISOString().slice(0,13);
+                const resp = await fetch('/api/token-usage?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end), { headers: this.authHeaders() });
                 if (resp.status === 401) { this.kickToLogin(); return; }
-                if (resp.ok) {
-                  this.tokenData = await resp.json();
-                }
-              } catch (e) {
-                console.error('Failed to load token usage:', e);
-              } finally {
-                this.tokenLoading = false;
-              }
+                if (resp.ok) this.tokenData = await resp.json();
+              } catch (e) { console.error('fetchTokenData:', e); }
+              finally { this.tokenLoading = false; }
             },
 
             async loadTokenUsage() {
               await this.fetchTokenData();
-              if (this.tab !== 'keys') return;
+              if (this.tab !== 'usage') return;
               await this.$nextTick();
               this.renderTokenChart();
             },
 
             renderTokenChart() {
               const canvas = document.getElementById('tokenChart');
-              if (!canvas) return;
-              // Skip if canvas is hidden (display:none gives 0 dimensions)
-              if (canvas.clientWidth === 0) return;
+              if (!canvas || canvas.clientWidth === 0) return;
 
               const palette = ['#00e5ff','#00e676','#ffd740','#ff5252','#7c4dff','#ff6e40','#64ffda','#eeff41','#40c4ff','#ea80fc'];
               const isDaily = this.tokenRange !== 'today';
               const data = this.tokenData;
 
-              // Build keyId -> display name map
-              const keyNameMap = new Map();
-              keyNameMap.set('admin', 'admin');
+              const keyNameMap = new Map([['admin', 'admin']]);
               for (const k of this.keys) keyNameMap.set(k.id, k.name);
 
-              // Compute summary
               let totalReqs = 0, totalIn = 0, totalOut = 0;
               for (const r of data) { totalReqs += r.requests; totalIn += r.inputTokens; totalOut += r.outputTokens; }
               this.tokenSummary = { requests: totalReqs, input: totalIn, output: totalOut };
 
-              // Build time buckets using LOCAL time for display
-              // Data from API uses UTC hour keys like "2026-03-09T15"
-              // We bucket by local hour/date for correct timezone display
-              const bucketMap = new Map(); // localKey -> label
+              const bucketMap = new Map();
               const now = new Date();
               if (this.tokenRange === 'today') {
                 for (let h = 0; h < 24; h++) {
-                  const d = new Date(now); d.setHours(h, 0, 0, 0);
-                  const key = this.localHourKey(d); // local "YYYY-MM-DDTHH"
-                  const label = String(h).padStart(2, '0') + ':00 – ' + String((h + 1) % 24).padStart(2, '0') + ':00';
-                  bucketMap.set(key, label);
+                  const d = new Date(now); d.setHours(h,0,0,0);
+                  bucketMap.set(this.localHourKey(d), String(h).padStart(2,'0') + ':00 \\u2013 ' + String((h+1)%24).padStart(2,'0') + ':00');
                 }
               } else {
                 const days = this.tokenRange === '7d' ? 7 : 30;
-                for (let i = days - 1; i >= 0; i--) {
-                  const d = new Date(now); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
-                  const key = this.localDateKey(d); // local "YYYY-MM-DD"
-                  const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                  bucketMap.set(key, label);
+                for (let i = days-1; i >= 0; i--) {
+                  const d = new Date(now); d.setDate(d.getDate()-i); d.setHours(0,0,0,0);
+                  bucketMap.set(this.localDateKey(d), d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
                 }
               }
 
-              // Aggregate: bucket -> keyId -> total tokens
-              // Convert each record's UTC hour to local time for bucketing
               const keyIds = new Set();
               const agg = new Map();
               for (const [key] of bucketMap) agg.set(key, new Map());
-
               for (const r of data) {
-                // r.hour is UTC like "2026-03-09T15", convert to local
-                const utcDate = new Date(r.hour + ':00:00Z');
-                const localBucket = isDaily
-                  ? this.localDateKey(utcDate)
-                  : this.localHourKey(utcDate);
-                if (!agg.has(localBucket)) continue;
+                const utc = new Date(r.hour + ':00:00Z');
+                const bucket = isDaily ? this.localDateKey(utc) : this.localHourKey(utc);
+                if (!agg.has(bucket)) continue;
                 keyIds.add(r.keyId);
-                const m = agg.get(localBucket);
-                m.set(r.keyId, (m.get(r.keyId) || 0) + r.inputTokens + r.outputTokens);
+                const m = agg.get(bucket);
+                m.set(r.keyId, (m.get(r.keyId)||0) + r.inputTokens + r.outputTokens);
               }
 
-              const keyList = [...keyIds].sort((a, b) => {
-                const na = keyNameMap.get(a) || a;
-                const nb = keyNameMap.get(b) || b;
-                return na.localeCompare(nb);
-              });
+              const keyList = [...keyIds].sort((a,b) => (keyNameMap.get(a)||a).localeCompare(keyNameMap.get(b)||b));
               const labels = [...bucketMap.values()];
               const bucketKeys = [...bucketMap.keys()];
               const datasets = keyList.map((keyId, i) => {
-                const color = palette[i % palette.length];
+                const c = palette[i % palette.length];
                 return {
-                  label: keyNameMap.get(keyId) || keyId.slice(0, 8),
-                  data: bucketKeys.map(k => (agg.get(k)?.get(keyId)) || 0),
-                  borderColor: color,
-                  backgroundColor: color + '18',
-                  borderWidth: 2,
-                  pointRadius: 2,
-                  pointHoverRadius: 5,
-                  tension: 0.3,
-                  fill: true,
+                  label: keyNameMap.get(keyId) || keyId.slice(0,8),
+                  data: bucketKeys.map(k => agg.get(k)?.get(keyId) || 0),
+                  borderColor: c, backgroundColor: c + '18',
+                  borderWidth: 2, pointRadius: 2, pointHoverRadius: 5, tension: 0.3, fill: true,
                 };
               });
 
-              if (this.tokenChart) {
-                this.tokenChart.stop();
-                this.tokenChart.destroy();
-                this.tokenChart = null;
-              }
+              if (this.tokenChart) { this.tokenChart.stop(); this.tokenChart.destroy(); this.tokenChart = null; }
 
               this.tokenChart = new Chart(canvas, {
-                type: 'line',
-                data: { labels, datasets },
+                type: 'line', data: { labels, datasets },
                 options: {
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  animation: false,
+                  responsive: true, maintainAspectRatio: false, animation: false,
                   interaction: { mode: 'index', intersect: false },
                   plugins: {
-                    legend: {
-                      position: 'bottom',
-                      labels: { color: '#9e9e9e', font: { size: 11, family: "'DM Sans', sans-serif" }, boxWidth: 12, padding: 16, usePointStyle: true, pointStyle: 'circle' }
-                    },
+                    legend: { position: 'bottom', labels: { color: '#9e9e9e', font: { size: 11, family: "'DM Sans', sans-serif" }, boxWidth: 12, padding: 16, usePointStyle: true, pointStyle: 'circle' } },
                     tooltip: {
-                      backgroundColor: 'rgba(12,16,21,0.95)',
-                      borderColor: 'rgba(255,255,255,0.1)',
-                      borderWidth: 1,
-                      titleColor: '#e0e0e0',
-                      bodyColor: '#b0bec5',
-                      padding: 12,
+                      backgroundColor: 'rgba(12,16,21,0.95)', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
+                      titleColor: '#e0e0e0', bodyColor: '#b0bec5', padding: 12,
                       bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
-                      callbacks: {
-                        label: function(ctx) {
-                          return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens';
-                        }
-                      }
+                      callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens' }
                     }
                   },
                   scales: {
-                    x: {
-                      grid: { color: 'rgba(255,255,255,0.04)' },
-                      ticks: { color: '#9e9e9e', font: { size: 10, family: "'DM Sans', sans-serif" }, maxRotation: 45 },
-                      border: { color: 'rgba(255,255,255,0.06)' }
-                    },
+                    x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#9e9e9e', font: { size: 10, family: "'DM Sans', sans-serif" }, maxRotation: 45 }, border: { color: 'rgba(255,255,255,0.06)' } },
                     y: {
-                      beginAtZero: true,
-                      grid: { color: 'rgba(255,255,255,0.04)' },
-                      ticks: {
-                        color: '#9e9e9e',
-                        font: { size: 10, family: "'JetBrains Mono', monospace" },
-                        callback: function(val) {
-                          if (val >= 1000000) return (val/1000000).toFixed(1) + 'M';
-                          if (val >= 1000) return (val/1000).toFixed(0) + 'K';
-                          return val;
-                        }
-                      },
+                      beginAtZero: true, grid: { color: 'rgba(255,255,255,0.04)' },
+                      ticks: { color: '#9e9e9e', font: { size: 10, family: "'JetBrains Mono', monospace" },
+                        callback: v => v >= 1e6 ? (v/1e6).toFixed(1)+'M' : v >= 1e3 ? (v/1e3).toFixed(0)+'K' : v },
                       border: { color: 'rgba(255,255,255,0.06)' }
                     }
                   }
@@ -877,22 +957,11 @@ export function DashboardPage() {
               });
             },
 
-            switchTokenRange(range) {
-              this.tokenRange = range;
-              this.loadTokenUsage();
-            },
+            switchTokenRange(range) { this.tokenRange = range; this.loadTokenUsage(); },
 
             // ---- Common ----
-
-            logout() {
-              localStorage.removeItem('access_key');
-              window.location.href = '/';
-            },
-
-            kickToLogin() {
-              localStorage.removeItem('access_key');
-              window.location.href = '/';
-            }
+            logout() { localStorage.removeItem('access_key'); window.location.href = '/'; },
+            kickToLogin() { localStorage.removeItem('access_key'); window.location.href = '/'; }
           }
         }
       </script>`,

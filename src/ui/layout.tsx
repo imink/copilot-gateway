@@ -20,6 +20,10 @@ export function Layout({
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <link href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-okaidia.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-toml.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet" />
@@ -212,6 +216,28 @@ export function Layout({
       background: rgba(255, 255, 255, 0.08);
       border-color: rgba(255, 255, 255, 0.15);
     }
+
+    /* Prism github-dark overrides */
+    code[class*="language-"],
+    pre[class*="language-"] {
+      background: transparent !important;
+      text-shadow: none !important;
+      font-family: 'JetBrains Mono', monospace !important;
+      font-size: 11px !important;
+      line-height: 1.6 !important;
+    }
+    /* TOML table headers — Tailwind's .table sets display:table, override it */
+    .token.table { display: inline !important; }
+    .token.table .punctuation { display: inline !important; }
+    .token.comment, .token.prolog, .token.doctype, .token.cdata { color: #8b949e; }
+    .token.punctuation { color: #c9d1d9; }
+    .token.property, .token.tag, .token.boolean, .token.number, .token.constant, .token.symbol { color: #79c0ff; }
+    .token.selector, .token.attr-name, .token.string, .token.char, .token.builtin { color: #a5d6ff; }
+    .token.operator, .token.entity, .token.url { color: #c9d1d9; }
+    .token.atrule, .token.attr-value, .token.keyword { color: #ff7b72; }
+    .token.function, .token.class-name { color: #d2a8ff; }
+    .token.regex, .token.important, .token.variable { color: #ffa657; }
+    .token.assign-left { color: #c9d1d9; }
   </style>
 </head>
 <body class="min-h-screen">
