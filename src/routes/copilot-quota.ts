@@ -1,8 +1,9 @@
-// GET /api/usage — fetch Copilot usage/quota info from GitHub API
+// GET /api/copilot-quota — fetch Copilot usage/quota info from GitHub API
 
 import type { Context } from "hono";
 import { githubHeaders } from "../lib/copilot.ts";
-import { getGithubToken } from "../lib/session.ts";
+import { getGithubToken } from "../lib/github.ts";
+import { requireAdmin } from "../lib/auth-guard.ts";
 
 export interface QuotaDetail {
   entitlement: number;
@@ -33,7 +34,8 @@ export interface CopilotUsageResponse {
 }
 
 export const copilotQuota = async (c: Context) => {
-  if (!c.get("isAdmin")) return c.json({ error: "Dashboard key required" }, 403);
+  const denied = requireAdmin(c);
+  if (denied) return denied;
   try {
     const githubToken = await getGithubToken();
     if (!githubToken) {

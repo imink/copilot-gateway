@@ -1,9 +1,9 @@
-// GET /v1/models — proxy to Copilot models endpoint
+// GET /v1/models, /api/models — proxy to Copilot models endpoint
 
 import type { Context } from "hono";
 import { copilotFetch } from "../lib/copilot.ts";
 import { getEnv } from "../lib/env.ts";
-import { getGithubToken } from "../lib/session.ts";
+import { getGithubToken } from "../lib/github.ts";
 
 export const models = async (c: Context) => {
   try {

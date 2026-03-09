@@ -92,24 +92,6 @@ export function Layout({
       border-radius: 16px;
     }
 
-    /* Animated gradient line */
-    @keyframes shimmer {
-      0% { background-position: -200% center; }
-      100% { background-position: 200% center; }
-    }
-
-    .shimmer-line {
-      height: 2px;
-      background: linear-gradient(90deg,
-        transparent 0%,
-        rgba(0, 229, 255, 0.4) 25%,
-        rgba(0, 229, 255, 0.8) 50%,
-        rgba(0, 229, 255, 0.4) 75%,
-        transparent 100%);
-      background-size: 200% 100%;
-      animation: shimmer 3s ease-in-out infinite;
-    }
-
     /* Staggered fade-in */
     @keyframes fadeSlideUp {
       from { opacity: 0; transform: translateY(16px); }

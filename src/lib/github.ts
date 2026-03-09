@@ -1,4 +1,4 @@
-// Global KV store — GitHub token & user info (no sessions, no expiry)
+// GitHub connection — token & user info stored in KV
 // Single-user architecture: one GitHub token stored globally
 
 import { kv } from "./kv.ts";

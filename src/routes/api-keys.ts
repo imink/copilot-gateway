@@ -2,13 +2,7 @@
 
 import type { Context } from "hono";
 import { createApiKey, listApiKeys, deleteApiKey, rotateApiKey, type ApiKey } from "../lib/api-keys.ts";
-
-function requireAdmin(c: Context): Response | null {
-  if (!c.get("isAdmin")) {
-    return c.json({ error: "Dashboard key required" }, 403);
-  }
-  return null;
-}
+import { requireAdmin } from "../lib/auth-guard.ts";
 
 function keyToJson(k: ApiKey) {
   return { id: k.id, name: k.name, key_hint: k.key.slice(-4), created_at: k.createdAt, last_used_at: k.lastUsedAt ?? null };

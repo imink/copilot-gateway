@@ -9,20 +9,14 @@ import {
   setGithubConnection,
   clearGithubConnection,
   type GitHubUser,
-} from "../lib/session.ts";
+} from "../lib/github.ts";
 import { getEnv } from "../lib/env.ts";
 import { validateApiKey } from "../lib/api-keys.ts";
+import { requireAdmin } from "../lib/auth-guard.ts";
 
 // GitHub OAuth app client ID (same as Copilot extension)
 const GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 const GITHUB_SCOPES = "read:user";
-
-function requireAdmin(c: Context): Response | null {
-  if (!c.get("isAdmin")) {
-    return c.json({ error: "Dashboard key required" }, 403);
-  }
-  return null;
-}
 
 /** POST /auth/login — validate ADMIN_KEY or API key */
 export const authLogin = async (c: Context) => {

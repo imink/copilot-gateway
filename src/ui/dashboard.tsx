@@ -739,7 +739,7 @@ export function DashboardPage() {
 
             async loadUsage() {
               try {
-                const resp = await fetch('/api/usage', { headers: this.authHeaders() });
+                const resp = await fetch('/api/copilot-quota', { headers: this.authHeaders() });
                 if (resp.status === 401) { this.kickToLogin(); return; }
                 if (resp.ok) {
                   this.usageData = await resp.json();
@@ -1010,7 +1010,7 @@ export function DashboardPage() {
 
             // ---- Common ----
             logout() { localStorage.removeItem('authKey'); localStorage.removeItem('isAdmin'); localStorage.removeItem('login_key_id'); localStorage.removeItem('login_key_name'); localStorage.removeItem('login_key_hint'); window.location.href = '/'; },
-            kickToLogin() { localStorage.removeItem('authKey'); localStorage.removeItem('isAdmin'); localStorage.removeItem('login_key_id'); localStorage.removeItem('login_key_name'); localStorage.removeItem('login_key_hint'); window.location.href = '/'; }
+            kickToLogin() { this.logout(); }
           }
         }
       </script>`,

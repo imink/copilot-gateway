@@ -3,7 +3,7 @@
 import type { Context } from "hono";
 import { copilotFetch } from "../lib/copilot.ts";
 import { getEnv } from "../lib/env.ts";
-import { getGithubToken } from "../lib/session.ts";
+import { getGithubToken } from "../lib/github.ts";
 
 export const embeddings = async (c: Context) => {
   try {

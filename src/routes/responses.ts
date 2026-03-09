@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { copilotFetch, type CopilotFetchOptions } from "../lib/copilot.ts";
 import { getEnv } from "../lib/env.ts";
-import { getGithubToken } from "../lib/session.ts";
+import { getGithubToken } from "../lib/github.ts";
 import { modelSupportsEndpoint } from "../lib/models-cache.ts";
 import type { ResponsesPayload } from "../lib/responses-types.ts";
 import type { AnthropicResponse } from "../lib/anthropic-types.ts";

@@ -1,19 +1,23 @@
 // copilot-deno — GitHub Copilot API proxy for Deno Deploy
 //
-// Exposes:
+// Data plane (API key required):
 //   POST /v1/chat/completions   (OpenAI-compatible, passthrough)
 //   POST /v1/messages           (Anthropic-compatible, translated)
 //   POST /v1/embeddings         (OpenAI-compatible, passthrough)
 //   POST /v1/responses          (OpenAI Responses API, passthrough)
 //   GET  /v1/models
-//   GET  /api/usage
+//
+// Control plane (ADMIN_KEY or API key via /api/, /auth/ prefixes):
+//   GET  /api/copilot-quota     — upstream Copilot quota
+//   GET  /api/token-usage       — per-key token usage records
+//   GET  /api/models            — model list for dashboard
+//   CRUD /api/keys              — API key management
 //
 // Frontend:
 //   GET  /              — Login page (or JSON health check for API clients)
-//   GET  /dashboard     — Usage dashboard
+//   GET  /dashboard     — Dashboard
 //
-// Auth: ADMIN_KEY (dashboard) or per-key API keys via ?key=, x-api-key, or Authorization: Bearer
-// Frontend auth: key stored in localStorage as authKey, sent as x-api-key header
+// Auth: ADMIN_KEY (dashboard only) or per-key API keys via ?key=, x-api-key, or Authorization: Bearer
 
 import { Hono } from "hono";
 import { logger } from "hono/logger";
@@ -57,8 +61,8 @@ app.get("/", (c) => {
 });
 app.get("/dashboard", (c) => c.html(DashboardPage()));
 
-// Dashboard API
-app.get("/api/usage", copilotQuota);
+// Control plane — dashboard API
+app.get("/api/copilot-quota", copilotQuota);
 app.get("/api/token-usage", tokenUsage);
 app.get("/api/models", models);
 app.get("/api/keys", listKeys);
@@ -66,7 +70,7 @@ app.post("/api/keys", createKey);
 app.post("/api/keys/:id/rotate", rotateKey);
 app.delete("/api/keys/:id", deleteKey);
 
-// OpenAI-compatible
+// Data plane — OpenAI-compatible
 app.post("/v1/chat/completions", chatCompletions);
 app.post("/chat/completions", chatCompletions);
 app.get("/v1/models", models);
@@ -76,12 +80,9 @@ app.post("/embeddings", embeddings);
 app.post("/v1/responses", responses);
 app.post("/responses", responses);
 
-// Anthropic-compatible
+// Data plane — Anthropic-compatible
 app.post("/v1/messages", messages);
 app.post("/v1/messages/count_tokens", countTokens);
-
-// Copilot quota (legacy path)
-app.get("/usage", copilotQuota);
 
 // Auth
 app.post("/auth/login", authLogin);
