@@ -2,18 +2,17 @@
 
 import type { Context } from "hono";
 import { copilotFetch } from "../lib/copilot.ts";
-import { getEnv } from "../lib/env.ts";
-import { getGithubToken } from "../lib/github.ts";
+import { getGithubCredentials } from "../lib/github.ts";
 
 export const embeddings = async (c: Context) => {
   try {
     const body = await c.req.text();
-    const githubToken = await getGithubToken();
+    const { token: githubToken, accountType } = await getGithubCredentials();
     const resp = await copilotFetch(
       "/embeddings",
       { method: "POST", body },
       githubToken,
-      getEnv("ACCOUNT_TYPE"),
+      accountType,
     );
 
     return new Response(resp.body, {

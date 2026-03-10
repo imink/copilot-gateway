@@ -2,8 +2,7 @@
 
 import type { Context } from "hono";
 import { copilotFetch } from "../lib/copilot.ts";
-import { getEnv } from "../lib/env.ts";
-import { getGithubToken } from "../lib/github.ts";
+import { getGithubCredentials } from "../lib/github.ts";
 
 /** Detect if request body contains image content */
 function hasVision(body: Record<string, unknown>): boolean {
@@ -21,13 +20,13 @@ export const chatCompletions = async (c: Context) => {
   try {
     const body = await c.req.json();
     const vision = hasVision(body);
-    const githubToken = await getGithubToken();
+    const { token: githubToken, accountType } = await getGithubCredentials();
 
     const resp = await copilotFetch(
       "/chat/completions",
       { method: "POST", body: JSON.stringify(body) },
       githubToken,
-      getEnv("ACCOUNT_TYPE"),
+      accountType,
       { vision },
     );
 

@@ -39,6 +39,13 @@
       "jsr:@hono/hono@4",
       "npm:@anthropic-ai/tokenizer@^0.0.4",
       "npm:gpt-tokenizer@^3.4.0"
-    ]
+    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:@anthropic-ai/tokenizer@^0.0.4",
+        "npm:gpt-tokenizer@^3.4.0",
+        "npm:hono@4"
+      ]
+    }
   }
 }

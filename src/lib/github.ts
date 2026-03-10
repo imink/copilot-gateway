@@ -1,11 +1,6 @@
-// GitHub connection — multi-account: multiple GitHub tokens stored in KV
-// One account is "active" at a time; all LLM requests use the active account's token.
-//
-// KV layout:
-//   ["github_accounts", <user_id>] → GitHubAccount { token, user }
-//   ["config", "active_github_account"] → number (user_id)
+import { getRepo } from "../repo/mod.ts";
 
-import { kv } from "./kv.ts";
+export type { GitHubAccount } from "../repo/types.ts";
 
 export interface GitHubUser {
   login: string;
@@ -14,60 +9,53 @@ export interface GitHubUser {
   id: number;
 }
 
-export interface GitHubAccount {
+export interface GithubCredentials {
   token: string;
-  user: GitHubUser;
+  accountType: string;
 }
 
-// ---- Multi-account CRUD ----
-
-/** List all connected GitHub accounts */
-export async function listGithubAccounts(): Promise<GitHubAccount[]> {
-  const accounts: GitHubAccount[] = [];
-  for await (const entry of kv.list<GitHubAccount>({ prefix: ["github_accounts"] })) {
-    if (entry.value) accounts.push(entry.value);
-  }
-  return accounts;
+export function listGithubAccounts() {
+  return getRepo().github.listAccounts();
 }
 
-/** Add (or update) a GitHub account and set it as active */
-export async function addGithubAccount(token: string, user: GitHubUser): Promise<void> {
-  await kv.set(["github_accounts", user.id], { token, user } satisfies GitHubAccount);
-  await kv.set(["config", "active_github_account"], user.id);
+export async function addGithubAccount(
+  token: string,
+  user: GitHubUser,
+  accountType: string,
+): Promise<void> {
+  const repo = getRepo().github;
+  await repo.saveAccount(user.id, { token, accountType, user });
+  await repo.setActiveId(user.id);
 }
 
-/** Remove a GitHub account. If it was active, clear the active pointer. */
 export async function removeGithubAccount(userId: number): Promise<void> {
-  await kv.delete(["github_accounts", userId]);
-  const active = await kv.get<number>(["config", "active_github_account"]);
-  if (active.value === userId) {
-    await kv.delete(["config", "active_github_account"]);
+  const repo = getRepo().github;
+  await repo.deleteAccount(userId);
+  const activeId = await repo.getActiveId();
+  if (activeId === userId) {
+    await repo.clearActiveId();
   }
 }
 
-/** Set the active GitHub account */
-export async function setActiveGithubAccount(userId: number): Promise<boolean> {
-  const account = await kv.get<GitHubAccount>(["github_accounts", userId]);
-  if (!account.value) return false;
-  await kv.set(["config", "active_github_account"], userId);
+export async function setActiveGithubAccount(
+  userId: number,
+): Promise<boolean> {
+  const repo = getRepo().github;
+  const account = await repo.getAccount(userId);
+  if (!account) return false;
+  await repo.setActiveId(userId);
   return true;
 }
 
-/** Get the active GitHub account (user + token) */
-export async function getActiveGithubAccount(): Promise<GitHubAccount | null> {
-  const activeId = await kv.get<number>(["config", "active_github_account"]);
-  if (activeId.value == null) return null;
-  const account = await kv.get<GitHubAccount>(["github_accounts", activeId.value]);
-  return account.value;
+export async function getActiveGithubAccount() {
+  const repo = getRepo().github;
+  const activeId = await repo.getActiveId();
+  if (activeId == null) return null;
+  return repo.getAccount(activeId);
 }
 
-// ---- Compatibility layer for existing route code ----
-
-/** Get the active GitHub token (used by all LLM routes) */
-export async function getGithubToken(): Promise<string> {
+export async function getGithubCredentials(): Promise<GithubCredentials> {
   const account = await getActiveGithubAccount();
-  if (account) return account.token;
-  // Env fallback for initial setup
-  // deno-lint-ignore no-explicit-any
-  return (Deno as any).env.get("GITHUB_TOKEN") ?? "";
+  if (!account) throw new Error("No GitHub account connected — add one via the dashboard");
+  return { token: account.token, accountType: account.accountType };
 }

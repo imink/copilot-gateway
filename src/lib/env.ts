@@ -1,4 +1,9 @@
+let _getEnv: (name: string) => string = () => "";
+
+export function initEnv(fn: (name: string) => string): void {
+  _getEnv = fn;
+}
+
 export function getEnv(name: string): string {
-  // deno-lint-ignore no-explicit-any
-  return (Deno as any).env.get(name) ?? "";
+  return _getEnv(name);
 }

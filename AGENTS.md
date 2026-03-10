@@ -2,14 +2,42 @@
 
 ## Project Overview
 
-copilot-deno is a single-user GitHub Copilot API proxy deployed on Deno Deploy. It translates GitHub Copilot's internal API into standard Anthropic Messages API and OpenAI Responses API formats, enabling tools like Claude Code and Codex CLI to access various models through a Copilot subscription.
+copilot-deno is a GitHub Copilot API proxy that translates GitHub Copilot's internal API into standard Anthropic Messages API and OpenAI Responses API formats, enabling tools like Claude Code and Codex CLI to access various models through a Copilot subscription. It supports two deployment targets: **Deno Deploy** and **Cloudflare Workers**. >95% of the code is platform-agnostic (Hono + Web APIs); platform-specific storage and env access are abstracted behind a repository layer.
 
 ## Architecture
 
-### Entry Point & Routing
+### Multi-Platform Architecture
 
-- `src/main.ts` — Hono application entry point, registers all routes and middleware
-- `src/middleware/auth.ts` — Unified ACCESS_KEY authentication middleware
+The codebase supports Deno Deploy and Cloudflare Workers from a single source. Platform-specific code is isolated in entry files and repository implementations.
+
+**Layering:**
+
+```
+Route handlers (platform-agnostic)
+    ↓
+Business logic: src/lib/api-keys.ts, github.ts, usage-tracker.ts
+    ↓ delegates to
+Repository interface (src/repo/types.ts)
+    ↓
+DenoKvRepo (src/repo/deno.ts)  |  D1Repo (src/repo/d1.ts)
+```
+
+**Entry points:**
+- `main.ts` — Deno Deploy entry: inits env via `Deno.env`, repo via `DenoKvRepo`, calls `Deno.serve()`
+- `entry-cloudflare.ts` — CF Workers entry: inits env from `env` bindings, repo via `D1Repo`
+
+**App core:**
+- `src/app.ts` — Hono application with all routes and middleware (no platform-specific code)
+- `src/middleware/auth.ts` — Unified authentication middleware
+
+**Environment abstraction:**
+- `src/lib/env.ts` — `initEnv(fn)` / `getEnv(name)` — pluggable env access, initialized by entry file
+
+**Repository layer:**
+- `src/repo/types.ts` — `Repo`, `ApiKeyRepo`, `GitHubRepo`, `UsageRepo` interfaces
+- `src/repo/mod.ts` — `initRepo(repo)` / `getRepo()` singleton
+- `src/repo/deno.ts` — `DenoKvRepo` using Deno KV
+- `src/repo/d1.ts` — `D1Repo` using Cloudflare D1 (SQLite)
 
 ### API Routes
 
@@ -53,7 +81,11 @@ The `/responses` endpoint similarly:
 | `src/lib/openai-types.ts` | OpenAI API type definitions |
 | `src/lib/responses-types.ts` | Responses API type definitions |
 | `src/lib/stop-reason.ts` | Stop reason mapping |
-| `src/lib/session.ts` | GitHub Token session management (KV storage) |
+| `src/repo/types.ts` | Repository interfaces (ApiKeyRepo, GitHubRepo, UsageRepo) |
+| `src/repo/mod.ts` | `initRepo()`/`getRepo()` singleton registry |
+| `src/repo/deno.ts` | Deno KV repository implementation |
+| `src/repo/d1.ts` | Cloudflare D1 (SQLite) repository implementation |
+| `src/lib/env.ts` | Pluggable environment variable access (`initEnv`/`getEnv`) |
 
 ## Code Style Guidelines
 
@@ -117,7 +149,7 @@ This provides up-to-date knowledge about Deno Deploy commands, environment varia
 deno task dev
 
 # Type checking
-deno check src/main.ts
+deno check main.ts
 
 # Linting
 deno lint
@@ -127,3 +159,26 @@ deno deploy --prod
 ```
 
 All changes must pass `deno check` and `deno lint` before deploying.
+
+### Cloudflare Workers
+
+```bash
+# Development
+wrangler dev
+
+# Deploy to production
+wrangler deploy
+
+# Apply D1 migrations
+wrangler d1 migrations apply copilot-db
+```
+
+D1 schema migrations are in `migrations/`. Configuration is in `wrangler.jsonc`.
+
+## Workflow Rules
+
+- **Deploy before commit**: All code changes must be deployed first (`deno deploy --prod`), confirmed working by the user, and only then committed. Never commit undeployed code.
+- **Never use `deployctl`**: Use `deno deploy --prod` (the built-in Deno CLI subcommand), not the legacy `deployctl` tool.
+- **Commit convention**: Follow [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `refactor:`, `chore:`). Keep messages concise.
+- **Keep AGENTS.md up to date**: Any changes to file structure, architecture, or key design decisions must be promptly reflected in this file.
+- **No legacy residue**: When replacing any part of the design, thoroughly search and remove all old code, env vars, fallbacks, and API surface. Every change should leave the codebase as clean as a greenfield project — no compatibility shims, no dead fallbacks, no "just in case" code paths. The only thing that may require migration is database data.

@@ -42,7 +42,7 @@ export const adminOnlyMiddleware = async (c: Context, next: Next) => {
   if (!c.get("isAdmin")) {
     return c.json({ error: "Dashboard key required" }, 403);
   }
-  return next();
+  await next();
 };
 
 function extractKey(c: Context): string | null {

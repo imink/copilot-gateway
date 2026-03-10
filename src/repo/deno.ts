@@ -1,0 +1,166 @@
+import type {
+  ApiKey,
+  ApiKeyRepo,
+  GitHubAccount,
+  GitHubRepo,
+  Repo,
+  UsageRecord,
+  UsageRepo,
+} from "./types.ts";
+
+class DenoKvApiKeyRepo implements ApiKeyRepo {
+  constructor(private kv: Deno.Kv) {}
+
+  async list(): Promise<ApiKey[]> {
+    const keys: ApiKey[] = [];
+    for await (const entry of this.kv.list<ApiKey>({ prefix: ["api_keys"] })) {
+      keys.push(entry.value);
+    }
+    return keys;
+  }
+
+  async findByRawKey(rawKey: string): Promise<ApiKey | null> {
+    for await (const entry of this.kv.list<ApiKey>({ prefix: ["api_keys"] })) {
+      if (entry.value.key === rawKey) return entry.value;
+    }
+    return null;
+  }
+
+  async getById(id: string): Promise<ApiKey | null> {
+    const entry = await this.kv.get<ApiKey>(["api_keys", id]);
+    return entry.value;
+  }
+
+  async save(key: ApiKey): Promise<void> {
+    await this.kv.set(["api_keys", key.id], key);
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const existing = await this.kv.get(["api_keys", id]);
+    if (!existing.value) return false;
+    await this.kv.delete(["api_keys", id]);
+    return true;
+  }
+}
+
+class DenoKvGitHubRepo implements GitHubRepo {
+  constructor(private kv: Deno.Kv) {}
+
+  async listAccounts(): Promise<GitHubAccount[]> {
+    const accounts: GitHubAccount[] = [];
+    for await (
+      const entry of this.kv.list<GitHubAccount>({
+        prefix: ["github_accounts"],
+      })
+    ) {
+      if (entry.value) accounts.push(withDefaultAccountType(entry.value));
+    }
+    return accounts;
+  }
+
+  async getAccount(userId: number): Promise<GitHubAccount | null> {
+    const entry = await this.kv.get<GitHubAccount>([
+      "github_accounts",
+      userId,
+    ]);
+    return entry.value ? withDefaultAccountType(entry.value) : null;
+  }
+
+  async saveAccount(userId: number, account: GitHubAccount): Promise<void> {
+    await this.kv.set(["github_accounts", userId], account);
+  }
+
+  async deleteAccount(userId: number): Promise<void> {
+    await this.kv.delete(["github_accounts", userId]);
+  }
+
+  async getActiveId(): Promise<number | null> {
+    const entry = await this.kv.get<number>([
+      "config",
+      "active_github_account",
+    ]);
+    return entry.value;
+  }
+
+  async setActiveId(userId: number): Promise<void> {
+    await this.kv.set(["config", "active_github_account"], userId);
+  }
+
+  async clearActiveId(): Promise<void> {
+    await this.kv.delete(["config", "active_github_account"]);
+  }
+}
+
+// KV entries created before accountType was added may lack the field
+function withDefaultAccountType(account: GitHubAccount): GitHubAccount {
+  return account.accountType ? account : { ...account, accountType: "individual" };
+}
+
+class DenoKvUsageRepo implements UsageRepo {
+  constructor(private kv: Deno.Kv) {}
+
+  async record(
+    keyId: string,
+    model: string,
+    hour: string,
+    requests: number,
+    inputTokens: number,
+    outputTokens: number,
+  ): Promise<void> {
+    await this.kv.atomic()
+      .sum(["usage", keyId, model, hour, "r"], BigInt(requests))
+      .sum(["usage", keyId, model, hour, "i"], BigInt(inputTokens))
+      .sum(["usage", keyId, model, hour, "o"], BigInt(outputTokens))
+      .commit();
+  }
+
+  async query(
+    opts: { keyId?: string; start: string; end: string },
+  ): Promise<UsageRecord[]> {
+    const prefix: Deno.KvKey = opts.keyId
+      ? ["usage", opts.keyId]
+      : ["usage"];
+    const map = new Map<string, UsageRecord>();
+
+    for await (const entry of this.kv.list<Deno.KvU64>({ prefix })) {
+      const keyId = entry.key[1] as string;
+      const model = entry.key[2] as string;
+      const hour = entry.key[3] as string;
+      const metric = entry.key[4] as string;
+      if (hour < opts.start || hour >= opts.end) continue;
+
+      const mapKey = `${keyId}\0${model}\0${hour}`;
+      let rec = map.get(mapKey);
+      if (!rec) {
+        rec = {
+          keyId,
+          model,
+          hour,
+          requests: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+        };
+        map.set(mapKey, rec);
+      }
+
+      const val = Number(entry.value);
+      if (metric === "r") rec.requests = val;
+      else if (metric === "i") rec.inputTokens = val;
+      else if (metric === "o") rec.outputTokens = val;
+    }
+
+    return [...map.values()].sort((a, b) => a.hour.localeCompare(b.hour));
+  }
+}
+
+export class DenoKvRepo implements Repo {
+  apiKeys: ApiKeyRepo;
+  github: GitHubRepo;
+  usage: UsageRepo;
+
+  constructor(kv: Deno.Kv) {
+    this.apiKeys = new DenoKvApiKeyRepo(kv);
+    this.github = new DenoKvGitHubRepo(kv);
+    this.usage = new DenoKvUsageRepo(kv);
+  }
+}

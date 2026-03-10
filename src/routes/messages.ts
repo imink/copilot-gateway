@@ -1,8 +1,7 @@
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { copilotFetch, type CopilotFetchOptions } from "../lib/copilot.ts";
-import { getEnv } from "../lib/env.ts";
-import { getGithubToken } from "../lib/github.ts";
+import { getGithubCredentials } from "../lib/github.ts";
 import { modelSupportsEndpoint, findModel } from "../lib/models-cache.ts";
 import type {
   AnthropicMessagesPayload,
@@ -95,8 +94,7 @@ function noBodyResponse(c: Context) {
 export const messages = async (c: Context) => {
   try {
     const payload = await c.req.json<AnthropicMessagesPayload>();
-    const githubToken = await getGithubToken();
-    const accountType = getEnv("ACCOUNT_TYPE");
+    const { token: githubToken, accountType } = await getGithubCredentials();
 
     // Strip web_search tools — Copilot doesn't support them
     if (payload.tools) {

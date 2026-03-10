@@ -52,12 +52,14 @@ async function interceptNonStreaming(c: Context, keyId: string, model: string): 
 
   const usage = extractUsageFromJson(json);
   if (usage) {
-    recordUsage(keyId, model, usage.input, usage.output).catch((e) =>
+    const p1 = recordUsage(keyId, model, usage.input, usage.output).catch((e) =>
       console.error("Usage record error:", e)
     );
-    touchApiKeyLastUsed(keyId).catch((e) =>
+    const p2 = touchApiKeyLastUsed(keyId).catch((e) =>
       console.error("Touch lastUsedAt error:", e)
     );
+    safeWaitUntil(c, p1);
+    safeWaitUntil(c, p2);
   }
 }
 
@@ -109,12 +111,14 @@ function interceptStreaming(c: Context, keyId: string, model: string): void {
       }
 
       if (inputTokens > 0 || outputTokens > 0) {
-        recordUsage(keyId, model, inputTokens, outputTokens).catch((e) =>
+        const p1 = recordUsage(keyId, model, inputTokens, outputTokens).catch((e) =>
           console.error("Usage record error:", e)
         );
-        touchApiKeyLastUsed(keyId).catch((e) =>
+        const p2 = touchApiKeyLastUsed(keyId).catch((e) =>
           console.error("Touch lastUsedAt error:", e)
         );
+        safeWaitUntil(c, p1);
+        safeWaitUntil(c, p2);
       }
     },
   });
@@ -124,6 +128,15 @@ function interceptStreaming(c: Context, keyId: string, model: string): void {
     status: original.status,
     headers: original.headers,
   });
+}
+
+/** Safely call waitUntil if available (CF Workers). Deno Deploy throws on c.executionCtx access. */
+function safeWaitUntil(c: Context, promise: Promise<unknown>): void {
+  try {
+    c.executionCtx?.waitUntil?.(promise);
+  } catch {
+    // Deno Deploy: no ExecutionContext — promises settle on their own
+  }
 }
 
 interface UsageInfo {

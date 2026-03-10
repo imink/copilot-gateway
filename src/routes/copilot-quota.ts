@@ -2,7 +2,7 @@
 
 import type { Context } from "hono";
 import { githubHeaders } from "../lib/copilot.ts";
-import { getGithubToken } from "../lib/github.ts";
+import { getGithubCredentials } from "../lib/github.ts";
 
 export interface QuotaDetail {
   entitlement: number;
@@ -34,10 +34,7 @@ export interface CopilotUsageResponse {
 
 export const copilotQuota = async (c: Context) => {
   try {
-    const githubToken = await getGithubToken();
-    if (!githubToken) {
-      return c.json({ error: "GitHub token not configured" }, 500);
-    }
+    const { token: githubToken } = await getGithubCredentials();
 
     const resp = await fetch(
       "https://api.github.com/copilot_internal/user",

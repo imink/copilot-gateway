@@ -4,7 +4,6 @@
 
 import type { Context } from "hono";
 import {
-  getGithubToken,
   listGithubAccounts,
   addGithubAccount,
   removeGithubAccount,
@@ -12,7 +11,7 @@ import {
   getActiveGithubAccount,
   type GitHubUser,
 } from "../lib/github.ts";
-import { clearCopilotTokenCache } from "../lib/copilot.ts";
+import { clearCopilotTokenCache, githubHeaders } from "../lib/copilot.ts";
 import { getEnv } from "../lib/env.ts";
 import { validateApiKey } from "../lib/api-keys.ts";
 
@@ -158,7 +157,8 @@ export const authGithubPoll = async (c: Context) => {
       }
 
       // Store account and set as active
-      await addGithubAccount(data.access_token, user);
+      const accountType = await detectAccountType(data.access_token);
+      await addGithubAccount(data.access_token, user, accountType);
       clearCopilotTokenCache();
       return c.json({ status: "complete", user });
     }
@@ -187,7 +187,7 @@ export const authMe = async (c: Context) => {
       });
       if (userResp.ok) {
         active.user = (await userResp.json()) as GitHubUser;
-        await addGithubAccount(active.token, active.user);
+        await addGithubAccount(active.token, active.user, active.accountType);
       }
     } catch {
       // Ignore — user just stays as-is
@@ -202,6 +202,7 @@ export const authMe = async (c: Context) => {
       login: a.user.login,
       name: a.user.name,
       avatar_url: a.user.avatar_url,
+      account_type: a.accountType,
       active: active?.user.id === a.user.id,
     })),
     // Legacy: single "user" field for the active account
@@ -233,3 +234,19 @@ export const authGithubSwitch = async (c: Context) => {
   clearCopilotTokenCache();
   return c.json({ ok: true });
 };
+
+async function detectAccountType(githubToken: string): Promise<string> {
+  try {
+    const resp = await fetch("https://api.github.com/copilot_internal/user", {
+      headers: await githubHeaders(githubToken),
+    });
+    if (!resp.ok) return "individual";
+    const data = (await resp.json()) as { copilot_plan?: string };
+    if (data.copilot_plan && ["individual", "business", "enterprise"].includes(data.copilot_plan)) {
+      return data.copilot_plan;
+    }
+    return "individual";
+  } catch {
+    return "individual";
+  }
+}

@@ -2,17 +2,16 @@
 
 import type { Context } from "hono";
 import { copilotFetch } from "../lib/copilot.ts";
-import { getEnv } from "../lib/env.ts";
-import { getGithubToken } from "../lib/github.ts";
+import { getGithubCredentials } from "../lib/github.ts";
 
 export const models = async (c: Context) => {
   try {
-    const githubToken = await getGithubToken();
+    const { token: githubToken, accountType } = await getGithubCredentials();
     const resp = await copilotFetch(
       "/models",
       { method: "GET" },
       githubToken,
-      getEnv("ACCOUNT_TYPE"),
+      accountType,
     );
     return new Response(resp.body, {
       status: resp.status,
