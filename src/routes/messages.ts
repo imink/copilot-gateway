@@ -1,19 +1,40 @@
 import type { Context } from "hono";
 import { copilotFetch, type CopilotFetchOptions } from "../lib/copilot.ts";
 import { getGithubCredentials } from "../lib/github.ts";
-import { modelSupportsEndpoint, findModel } from "../lib/models-cache.ts";
+import { findModel, modelSupportsEndpoint } from "../lib/models-cache.ts";
 import type {
   AnthropicMessagesPayload,
   AnthropicStreamState,
 } from "../lib/anthropic-types.ts";
-import type { ChatCompletionChunk, ChatCompletionResponse } from "../lib/openai-types.ts";
-import { translateToOpenAI, translateToAnthropic } from "../lib/translate/openai.ts";
+import type {
+  ChatCompletionChunk,
+  ChatCompletionResponse,
+} from "../lib/openai-types.ts";
+import {
+  translateToAnthropic,
+  translateToOpenAI,
+} from "../lib/translate/openai.ts";
 import { translateChunkToAnthropicEvents } from "../lib/translate/openai-stream.ts";
-import { translateAnthropicToResponses, translateResponsesToAnthropic } from "../lib/translate/responses.ts";
-import { translateResponsesStreamEvent, createResponsesStreamState } from "../lib/translate/responses-stream.ts";
+import {
+  translateAnthropicToResponses,
+  translateResponsesToAnthropic,
+} from "../lib/translate/responses.ts";
+import {
+  createResponsesStreamState,
+  translateResponsesStreamEvent,
+} from "../lib/translate/responses-stream.ts";
 import { filterThinkingBlocks } from "../lib/translate/utils.ts";
-import type { ResponseStreamEvent, ResponsesResult } from "../lib/responses-types.ts";
+import type {
+  ResponsesResult,
+  ResponseStreamEvent,
+} from "../lib/responses-types.ts";
 import { proxySSE } from "../lib/sse.ts";
+import {
+  anthropicApiErrorResponse,
+  anthropicCopilotApiErrorResponse,
+  getErrorMessage,
+  noUpstreamBodyAnthropicErrorResponse,
+} from "./proxy-utils.ts";
 
 const ALLOWED_ANTHROPIC_BETAS = new Set([
   "interleaved-thinking-2025-05-14",
@@ -23,16 +44,25 @@ const ALLOWED_ANTHROPIC_BETAS = new Set([
 
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 
-function filterAnthropicBeta(header: string | undefined, isAdaptiveThinking = false): string | undefined {
+function filterAnthropicBeta(
+  header: string | undefined,
+  isAdaptiveThinking = false,
+): string | undefined {
   if (!header) return undefined;
-  let filtered = header.split(",").map((s) => s.trim()).filter((s) => s.length > 0 && ALLOWED_ANTHROPIC_BETAS.has(s));
-  if (isAdaptiveThinking) filtered = filtered.filter((s) => s !== INTERLEAVED_THINKING_BETA);
+  let filtered = header.split(",").map((s) => s.trim()).filter((s) =>
+    s.length > 0 && ALLOWED_ANTHROPIC_BETAS.has(s)
+  );
+  if (isAdaptiveThinking) {
+    filtered = filtered.filter((s) => s !== INTERLEAVED_THINKING_BETA);
+  }
   return filtered.length > 0 ? [...new Set(filtered)].join(",") : undefined;
 }
 
 function hasVision(payload: AnthropicMessagesPayload): boolean {
   return payload.messages.some(
-    (msg) => Array.isArray(msg.content) && msg.content.some((block) => block.type === "image"),
+    (msg) =>
+      Array.isArray(msg.content) &&
+      msg.content.some((block) => block.type === "image"),
   );
 }
 
@@ -40,7 +70,9 @@ function getInitiator(payload: AnthropicMessagesPayload): "user" | "agent" {
   const lastMsg = payload.messages[payload.messages.length - 1];
   if (!lastMsg || lastMsg.role !== "user") return "agent";
   if (Array.isArray(lastMsg.content)) {
-    return lastMsg.content.some((block) => block.type !== "tool_result") ? "user" : "agent";
+    return lastMsg.content.some((block) => block.type !== "tool_result")
+      ? "user"
+      : "agent";
   }
   return "user";
 }
@@ -80,20 +112,10 @@ function contextWindowErrorResponse(c: Context) {
     type: "error",
     error: {
       type: "invalid_request_error",
-      message: "prompt is too long: your prompt is too long. Please reduce the number of messages or use a model with a larger context window.",
+      message:
+        "prompt is too long: your prompt is too long. Please reduce the number of messages or use a model with a larger context window.",
     },
   }, 400);
-}
-
-function copilotErrorResponse(c: Context, status: number, text: string) {
-  return c.json(
-    { type: "error", error: { type: "api_error", message: `Copilot API error: ${status} ${text}` } },
-    status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503,
-  );
-}
-
-function noBodyResponse(c: Context) {
-  return c.json({ type: "error", error: { type: "api_error", message: "No response body from upstream" } }, 502);
 }
 
 export const messages = async (c: Context) => {
@@ -103,8 +125,9 @@ export const messages = async (c: Context) => {
 
     // Strip web_search tools — Copilot doesn't support them
     if (payload.tools) {
-      // deno-lint-ignore no-explicit-any
-      payload.tools = payload.tools.filter((t) => (t as any).type !== "web_search");
+      payload.tools = payload.tools.filter((t) =>
+        !("type" in t && t.type === "web_search")
+      );
       if (payload.tools.length === 0) delete payload.tools;
     }
 
@@ -114,21 +137,46 @@ export const messages = async (c: Context) => {
     const initiator = getInitiator(payload);
     const rawBeta = c.req.header("anthropic-beta");
 
-    const supportsMessages = await modelSupportsEndpoint(payload.model, "/v1/messages", githubToken, accountType);
+    const supportsMessages = await modelSupportsEndpoint(
+      payload.model,
+      "/v1/messages",
+      githubToken,
+      accountType,
+    );
     if (supportsMessages) {
-      return await handleNativeMessages(c, payload, githubToken, accountType, { vision, initiator, rawBeta });
+      return await handleNativeMessages(c, payload, githubToken, accountType, {
+        vision,
+        initiator,
+        rawBeta,
+      });
     }
 
-    const supportsResponses = await modelSupportsEndpoint(payload.model, "/responses", githubToken, accountType);
-    const supportsChatCompletions = await modelSupportsEndpoint(payload.model, "/chat/completions", githubToken, accountType);
+    const supportsResponses = await modelSupportsEndpoint(
+      payload.model,
+      "/responses",
+      githubToken,
+      accountType,
+    );
+    const supportsChatCompletions = await modelSupportsEndpoint(
+      payload.model,
+      "/chat/completions",
+      githubToken,
+      accountType,
+    );
 
     if (supportsResponses && !supportsChatCompletions) {
-      return await handleWithResponses(c, payload, githubToken, accountType, { vision, initiator });
+      return await handleWithResponses(c, payload, githubToken, accountType, {
+        vision,
+        initiator,
+      });
     }
 
-    return await handleTranslated(c, payload, githubToken, accountType, { vision, initiator });
+    return await handleTranslated(c, payload, githubToken, accountType, {
+      vision,
+      initiator,
+    });
   } catch (e: unknown) {
-    return c.json({ type: "error", error: { type: "api_error", message: e instanceof Error ? e.message : String(e) } }, 502);
+    return anthropicApiErrorResponse(c, getErrorMessage(e), 502);
   }
 };
 
@@ -144,19 +192,31 @@ async function handleNativeMessages(
   const model = await findModel(payload.model, githubToken, accountType);
   if (model?.capabilities?.supports?.adaptive_thinking) {
     payload.thinking = { type: "adaptive" };
-    if (!payload.output_config?.effort) payload.output_config = { effort: "high" };
+    if (!payload.output_config?.effort) {
+      payload.output_config = { effort: "high" };
+    }
   }
 
   const isAdaptive = payload.thinking?.type === "adaptive";
   let anthropicBeta = filterAnthropicBeta(opts.rawBeta, isAdaptive);
 
   // Auto-add interleaved-thinking beta for budget-based thinking
-  if (payload.thinking?.budget_tokens && !isAdaptive && !anthropicBeta?.includes(INTERLEAVED_THINKING_BETA)) {
-    anthropicBeta = anthropicBeta ? `${anthropicBeta},${INTERLEAVED_THINKING_BETA}` : INTERLEAVED_THINKING_BETA;
+  if (
+    payload.thinking?.budget_tokens && !isAdaptive &&
+    !anthropicBeta?.includes(INTERLEAVED_THINKING_BETA)
+  ) {
+    anthropicBeta = anthropicBeta
+      ? `${anthropicBeta},${INTERLEAVED_THINKING_BETA}`
+      : INTERLEAVED_THINKING_BETA;
   }
 
-  const fetchOptions: CopilotFetchOptions = { vision: opts.vision, initiator: opts.initiator };
-  if (anthropicBeta) fetchOptions.extraHeaders = { "anthropic-beta": anthropicBeta };
+  const fetchOptions: CopilotFetchOptions = {
+    vision: opts.vision,
+    initiator: opts.initiator,
+  };
+  if (anthropicBeta) {
+    fetchOptions.extraHeaders = { "anthropic-beta": anthropicBeta };
+  }
 
   return forwardMessages(c, payload, githubToken, accountType, fetchOptions);
 }
@@ -170,18 +230,30 @@ async function forwardMessages(
 ): Promise<Response> {
   const { service_tier: _, ...cleanPayload } = payload;
 
-  const resp = await copilotFetch("/v1/messages", { method: "POST", body: JSON.stringify(cleanPayload) }, githubToken, accountType, fetchOptions);
+  const resp = await copilotFetch(
+    "/v1/messages",
+    { method: "POST", body: JSON.stringify(cleanPayload) },
+    githubToken,
+    accountType,
+    fetchOptions,
+  );
 
   if (!resp.ok) {
     const text = await resp.text();
-    return isContextWindowError(text) ? contextWindowErrorResponse(c) : copilotErrorResponse(c, resp.status, text);
+    return isContextWindowError(text)
+      ? contextWindowErrorResponse(c)
+      : anthropicCopilotApiErrorResponse(
+        c,
+        resp.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503,
+        text,
+      );
   }
 
   if (!payload.stream) {
     return c.json(await resp.json());
   }
 
-  if (!resp.body) return noBodyResponse(c);
+  if (!resp.body) return noUpstreamBodyAnthropicErrorResponse(c);
 
   return proxySSE(c, resp.body, undefined, "Native messages");
 }
@@ -193,21 +265,38 @@ async function handleTranslated(
   accountType: string,
   opts: { vision: boolean; initiator: "user" | "agent" },
 ): Promise<Response> {
-  const fetchOptions: CopilotFetchOptions = { vision: opts.vision, initiator: opts.initiator };
+  const fetchOptions: CopilotFetchOptions = {
+    vision: opts.vision,
+    initiator: opts.initiator,
+  };
 
   const openAIPayload = translateToOpenAI(payload);
-  const resp = await copilotFetch("/chat/completions", { method: "POST", body: JSON.stringify(openAIPayload) }, githubToken, accountType, fetchOptions);
+  const resp = await copilotFetch(
+    "/chat/completions",
+    { method: "POST", body: JSON.stringify(openAIPayload) },
+    githubToken,
+    accountType,
+    fetchOptions,
+  );
 
   if (!resp.ok) {
     const text = await resp.text();
-    return isContextWindowError(text) ? contextWindowErrorResponse(c) : copilotErrorResponse(c, resp.status, text);
+    return isContextWindowError(text)
+      ? contextWindowErrorResponse(c)
+      : anthropicCopilotApiErrorResponse(
+        c,
+        resp.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503,
+        text,
+      );
   }
 
   if (!payload.stream) {
-    return c.json(translateToAnthropic(await resp.json() as ChatCompletionResponse));
+    return c.json(
+      translateToAnthropic(await resp.json() as ChatCompletionResponse),
+    );
   }
 
-  if (!resp.body) return noBodyResponse(c);
+  if (!resp.body) return noUpstreamBodyAnthropicErrorResponse(c);
 
   const state: AnthropicStreamState = {
     messageStartSent: false,
@@ -221,7 +310,11 @@ async function handleTranslated(
     if (trimmed === "[DONE]" || !trimmed) return null;
 
     let chunk: ChatCompletionChunk;
-    try { chunk = JSON.parse(trimmed); } catch { return null; }
+    try {
+      chunk = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
 
     return translateChunkToAnthropicEvents(chunk, state)
       .map((e) => ({ event: e.type, data: JSON.stringify(e) }));
@@ -236,18 +329,32 @@ async function handleWithResponses(
   opts: { vision: boolean; initiator: "user" | "agent" },
 ): Promise<Response> {
   const responsesPayload = translateAnthropicToResponses(payload);
-  const resp = await copilotFetch("/responses", { method: "POST", body: JSON.stringify(responsesPayload) }, githubToken, accountType, opts);
+  const resp = await copilotFetch(
+    "/responses",
+    { method: "POST", body: JSON.stringify(responsesPayload) },
+    githubToken,
+    accountType,
+    opts,
+  );
 
   if (!resp.ok) {
     const text = await resp.text();
-    return isContextWindowError(text) ? contextWindowErrorResponse(c) : copilotErrorResponse(c, resp.status, text);
+    return isContextWindowError(text)
+      ? contextWindowErrorResponse(c)
+      : anthropicCopilotApiErrorResponse(
+        c,
+        resp.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503,
+        text,
+      );
   }
 
   if (!payload.stream) {
-    return c.json(translateResponsesToAnthropic(await resp.json() as ResponsesResult));
+    return c.json(
+      translateResponsesToAnthropic(await resp.json() as ResponsesResult),
+    );
   }
 
-  if (!resp.body) return noBodyResponse(c);
+  if (!resp.body) return noUpstreamBodyAnthropicErrorResponse(c);
 
   const state = createResponsesStreamState();
 
@@ -257,7 +364,11 @@ async function handleWithResponses(
     if (!trimmed) return null;
 
     let parsed: ResponseStreamEvent;
-    try { parsed = JSON.parse(trimmed); } catch { return null; }
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
 
     if (eventName && !parsed.type) parsed = { ...parsed, type: eventName };
 

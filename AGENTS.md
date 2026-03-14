@@ -199,6 +199,7 @@ The `/responses` endpoint similarly:
 | `src/lib/translate/responses.ts`                     | Anthropic ↔ Responses bidirectional translation                                                                                 |
 | `src/lib/translate/responses-stream.ts`              | Responses SSE → Anthropic SSE streaming translation                                                                             |
 | `src/lib/translate/anthropic-to-responses-stream.ts` | Anthropic SSE → Responses SSE streaming translation                                                                             |
+| `src/routes/proxy-utils.ts`                          | Shared route-layer proxy/error helpers for data plane routes                                                                    |
 | `src/lib/anthropic-types.ts`                         | Anthropic API type definitions                                                                                                  |
 | `src/lib/openai-types.ts`                            | OpenAI API type definitions                                                                                                     |
 | `src/lib/responses-types.ts`                         | Responses API type definitions                                                                                                  |

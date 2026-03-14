@@ -3,6 +3,11 @@
 import type { Context } from "hono";
 import { copilotFetch } from "../lib/copilot.ts";
 import { getGithubCredentials } from "../lib/github.ts";
+import {
+  apiErrorResponse,
+  getErrorMessage,
+  proxyJsonResponse,
+} from "./proxy-utils.ts";
 
 export const models = async (c: Context) => {
   try {
@@ -13,12 +18,8 @@ export const models = async (c: Context) => {
       githubToken,
       accountType,
     );
-    return new Response(resp.body, {
-      status: resp.status,
-      headers: { "content-type": "application/json" },
-    });
+    return proxyJsonResponse(resp);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return c.json({ error: msg }, 502);
+    return apiErrorResponse(c, getErrorMessage(e), 502);
   }
 };

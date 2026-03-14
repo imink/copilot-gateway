@@ -5,8 +5,8 @@ import { modelSupportsEndpoint } from "../lib/models-cache.ts";
 import type { ResponsesPayload } from "../lib/responses-types.ts";
 import type { AnthropicResponse } from "../lib/anthropic-types.ts";
 import {
-  translateResponsesToAnthropicPayload,
   translateAnthropicToResponsesResult,
+  translateResponsesToAnthropicPayload,
 } from "../lib/translate/responses.ts";
 import { filterThinkingBlocks } from "../lib/translate/utils.ts";
 import {
@@ -14,14 +14,23 @@ import {
   translateAnthropicEventToResponsesEvents,
 } from "../lib/translate/anthropic-to-responses-stream.ts";
 import { proxySSE } from "../lib/sse.ts";
+import {
+  apiErrorResponse,
+  copilotApiErrorResponse,
+  getErrorMessage,
+  noUpstreamBodyApiErrorResponse,
+} from "./proxy-utils.ts";
 
 function hasVision(payload: ResponsesPayload): boolean {
   const input = payload.input;
   if (!Array.isArray(input)) return false;
   return input.some((item) =>
-    item.type === "message" && "content" in item && Array.isArray(item.content) &&
+    item.type === "message" && "content" in item &&
+    Array.isArray(item.content) &&
     // deno-lint-ignore no-explicit-any
-    item.content.some((block: any) => block.type === "input_image" || block.type === "image")
+    item.content.some((block: any) =>
+      block.type === "input_image" || block.type === "image"
+    )
   );
 }
 
@@ -50,7 +59,9 @@ function fixApplyPatchTools(payload: ResponsesPayload): void {
         description: "Use the `apply_patch` tool to edit files",
         parameters: {
           type: "object",
-          properties: { patch: { type: "string", description: "The patch to apply" } },
+          properties: {
+            patch: { type: "string", description: "The patch to apply" },
+          },
           required: ["patch"],
           additionalProperties: false,
         },
@@ -68,8 +79,15 @@ interface StreamIdTracker {
   outputItemIds: Map<number, string>;
 }
 
-function fixStreamIds(data: string, event: string | undefined, tracker: StreamIdTracker): string {
-  if (event !== "response.output_item.added" && event !== "response.output_item.done") return data;
+function fixStreamIds(
+  data: string,
+  event: string | undefined,
+  tracker: StreamIdTracker,
+): string {
+  if (
+    event !== "response.output_item.added" &&
+    event !== "response.output_item.done"
+  ) return data;
 
   try {
     const parsed = JSON.parse(data);
@@ -98,21 +116,34 @@ export const responses = async (c: Context) => {
     const { token: githubToken, accountType } = await getGithubCredentials();
     const model = payload.model;
 
-    const supportsResponses = await modelSupportsEndpoint(model, "/responses", githubToken, accountType);
+    const supportsResponses = await modelSupportsEndpoint(
+      model,
+      "/responses",
+      githubToken,
+      accountType,
+    );
     if (supportsResponses) {
       return await handleDirectResponses(c, payload, githubToken, accountType);
     }
 
-    const supportsMessages = await modelSupportsEndpoint(model, "/v1/messages", githubToken, accountType);
+    const supportsMessages = await modelSupportsEndpoint(
+      model,
+      "/v1/messages",
+      githubToken,
+      accountType,
+    );
     if (supportsMessages) {
       return await handleViaMessages(c, payload, githubToken, accountType);
     }
 
     return c.json({
-      error: { message: `Model ${model} does not support the /responses endpoint.`, type: "invalid_request_error" },
+      error: {
+        message: `Model ${model} does not support the /responses endpoint.`,
+        type: "invalid_request_error",
+      },
     }, 400);
   } catch (e: unknown) {
-    return c.json({ error: { message: e instanceof Error ? e.message : String(e), type: "api_error" } }, 502);
+    return apiErrorResponse(c, getErrorMessage(e), 502);
   }
 };
 
@@ -127,15 +158,17 @@ async function handleDirectResponses(
   const resp = await copilotFetch(
     "/responses",
     { method: "POST", body: JSON.stringify(payload) },
-    githubToken, accountType,
+    githubToken,
+    accountType,
     { vision: hasVision(payload), initiator: getInitiator(payload) },
   );
 
   if (!resp.ok) {
     const text = await resp.text();
-    return c.json(
-      { error: { message: `Copilot API error: ${resp.status} ${text}`, type: "api_error" } },
+    return copilotApiErrorResponse(
+      c,
       resp.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503,
+      text,
     );
   }
 
@@ -144,9 +177,7 @@ async function handleDirectResponses(
     return c.json(await resp.json());
   }
 
-  if (!resp.body) {
-    return c.json({ error: { message: "No response body from upstream", type: "api_error" } }, 502);
-  }
+  if (!resp.body) return noUpstreamBodyApiErrorResponse(c);
 
   const idTracker: StreamIdTracker = { outputItemIds: new Map() };
   return proxySSE(c, resp.body, (event, data) => {
@@ -173,27 +204,37 @@ async function handleViaMessages(
   const resp = await copilotFetch(
     "/v1/messages",
     { method: "POST", body: JSON.stringify(anthropicPayload) },
-    githubToken, accountType, fetchOptions,
+    githubToken,
+    accountType,
+    fetchOptions,
   );
 
   if (!resp.ok) {
     const text = await resp.text();
-    return c.json(
-      { error: { message: `Copilot API error: ${resp.status} ${text}`, type: "api_error" } },
+    return copilotApiErrorResponse(
+      c,
       resp.status as 400 | 401 | 403 | 404 | 429 | 500 | 502 | 503,
+      text,
     );
   }
 
   if (!anthropicPayload.stream) {
-    return c.json(translateAnthropicToResponsesResult(await resp.json() as AnthropicResponse));
+    return c.json(
+      translateAnthropicToResponsesResult(
+        await resp.json() as AnthropicResponse,
+      ),
+    );
   }
 
-  if (!resp.body) {
-    return c.json({ error: { message: "No response body from upstream", type: "api_error" } }, 502);
-  }
+  if (!resp.body) return noUpstreamBodyApiErrorResponse(c);
 
-  const responseId = `resp_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
-  const state = createAnthropicToResponsesStreamState(responseId, anthropicPayload.model);
+  const responseId = `resp_${
+    crypto.randomUUID().replace(/-/g, "").slice(0, 24)
+  }`;
+  const state = createAnthropicToResponsesStreamState(
+    responseId,
+    anthropicPayload.model,
+  );
 
   return proxySSE(c, resp.body, (eventName, data) => {
     if (state.completed) return null;
@@ -202,7 +243,11 @@ async function handleViaMessages(
 
     // deno-lint-ignore no-explicit-any
     let parsed: any;
-    try { parsed = JSON.parse(trimmed); } catch { return null; }
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return null;
+    }
     if (eventName && !parsed.type) parsed.type = eventName;
 
     return translateAnthropicEventToResponsesEvents(parsed, state)

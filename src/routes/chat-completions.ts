@@ -17,6 +17,12 @@ import {
   createChatStreamState,
   translateAnthropicEventToChatChunks,
 } from "../lib/translate/messages-to-chat-stream.ts";
+import {
+  apiErrorResponse,
+  getErrorMessage,
+  noUpstreamBodyApiErrorResponse,
+  proxyJsonResponse,
+} from "./proxy-utils.ts";
 
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 
@@ -90,26 +96,30 @@ function fixStreamLine(line: string): string {
   return line;
 }
 
-function fixStream(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+function fixStream(
+  body: ReadableStream<Uint8Array>,
+): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = "";
 
-  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      buffer += decoder.decode(chunk, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop()!; // keep incomplete last line
-      for (const line of lines) {
-        controller.enqueue(encoder.encode(fixStreamLine(line) + "\n"));
-      }
-    },
-    flush(controller) {
-      if (buffer) {
-        controller.enqueue(encoder.encode(fixStreamLine(buffer) + "\n"));
-      }
-    },
-  }));
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        buffer += decoder.decode(chunk, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop()!; // keep incomplete last line
+        for (const line of lines) {
+          controller.enqueue(encoder.encode(fixStreamLine(line) + "\n"));
+        }
+      },
+      flush(controller) {
+        if (buffer) {
+          controller.enqueue(encoder.encode(fixStreamLine(buffer) + "\n"));
+        }
+      },
+    }),
+  );
 }
 
 export const chatCompletions = async (c: Context) => {
@@ -117,14 +127,20 @@ export const chatCompletions = async (c: Context) => {
     const body = await c.req.json();
     const { token: githubToken, accountType } = await getGithubCredentials();
 
-    if (await shouldUseMessagesApi(body.model ?? "", githubToken, accountType)) {
-      return await handleViaMessagesApi(c, body as ChatCompletionsPayload, githubToken, accountType);
+    if (
+      await shouldUseMessagesApi(body.model ?? "", githubToken, accountType)
+    ) {
+      return await handleViaMessagesApi(
+        c,
+        body as ChatCompletionsPayload,
+        githubToken,
+        accountType,
+      );
     }
 
     return await handleViaCompletionsApi(c, body, githubToken, accountType);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return c.json({ error: { message: msg, type: "api_error" } }, 502);
+    return apiErrorResponse(c, getErrorMessage(e), 502);
   }
 };
 
@@ -135,7 +151,8 @@ async function shouldUseMessagesApi(
 ): Promise<boolean> {
   const model = await findModel(modelId, githubToken, accountType);
   if (model) {
-    const supportsMessages = model.supported_endpoints?.includes("/v1/messages") ?? false;
+    const supportsMessages =
+      model.supported_endpoints?.includes("/v1/messages") ?? false;
     return supportsMessages;
   }
   // Fallback when models cache is unavailable
@@ -169,7 +186,7 @@ async function handleViaMessagesApi(
 
   if (!resp.ok) {
     const text = await resp.text();
-    return c.json({ error: { message: `Upstream error: ${resp.status} ${text}`, type: "api_error" } }, 502);
+    return apiErrorResponse(c, `Upstream error: ${resp.status} ${text}`, 502);
   }
 
   // Non-streaming
@@ -179,9 +196,7 @@ async function handleViaMessagesApi(
   }
 
   // Streaming
-  if (!resp.body) {
-    return c.json({ error: { message: "No response body from upstream", type: "api_error" } }, 502);
-  }
+  if (!resp.body) return noUpstreamBodyApiErrorResponse(c);
 
   return streamSSE(c, async (stream) => {
     const state = createChatStreamState();
@@ -217,7 +232,8 @@ async function handleViaCompletionsApi(
   accountType: string,
 ): Promise<Response> {
   const vision = hasVision(body);
-  const needsFix = (typeof body.model === "string") && body.model.startsWith("claude");
+  const needsFix = (typeof body.model === "string") &&
+    body.model.startsWith("claude");
 
   const resp = await copilotFetch(
     "/chat/completions",
@@ -227,8 +243,7 @@ async function handleViaCompletionsApi(
     { vision },
   );
 
-  const contentType =
-    resp.headers.get("content-type") ?? "application/json";
+  const contentType = resp.headers.get("content-type") ?? "application/json";
 
   if (contentType.includes("text/event-stream")) {
     const stream = needsFix && resp.body ? fixStream(resp.body) : resp.body;
@@ -246,8 +261,5 @@ async function handleViaCompletionsApi(
     return c.json(mergeChoices(data), resp.status as 200);
   }
 
-  return new Response(resp.body, {
-    status: resp.status,
-    headers: { "content-type": "application/json" },
-  });
+  return proxyJsonResponse(resp);
 }
