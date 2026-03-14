@@ -55,6 +55,11 @@ export interface AnthropicThinkingBlock {
   signature?: string;
 }
 
+export interface AnthropicRedactedThinkingBlock {
+  type: "redacted_thinking";
+  data: string;
+}
+
 export type AnthropicUserContentBlock =
   | AnthropicTextBlock
   | AnthropicImageBlock
@@ -63,7 +68,8 @@ export type AnthropicUserContentBlock =
 export type AnthropicAssistantContentBlock =
   | AnthropicTextBlock
   | AnthropicToolUseBlock
-  | AnthropicThinkingBlock;
+  | AnthropicThinkingBlock
+  | AnthropicRedactedThinkingBlock;
 
 export interface AnthropicUserMessage {
   role: "user";
@@ -134,7 +140,8 @@ export interface AnthropicContentBlockStartEvent {
   content_block:
     | { type: "text"; text: string }
     | (Omit<AnthropicToolUseBlock, "input"> & { input: Record<string, unknown> })
-    | { type: "thinking"; thinking: string };
+    | { type: "thinking"; thinking: string }
+    | { type: "redacted_thinking"; data: string };
 }
 
 export interface AnthropicContentBlockDeltaEvent {

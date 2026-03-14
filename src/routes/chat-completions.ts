@@ -1,8 +1,24 @@
-// POST /v1/chat/completions — passthrough to Copilot
+// POST /v1/chat/completions — passthrough or translate via Messages API
 
 import type { Context } from "hono";
+import { streamSSE } from "hono/streaming";
 import { copilotFetch } from "../lib/copilot.ts";
 import { getGithubCredentials } from "../lib/github.ts";
+import { modelSupportsEndpoint, findModel } from "../lib/models-cache.ts";
+import { parseSSEStream } from "../lib/sse.ts";
+import type {
+  AnthropicResponse,
+  AnthropicStreamEventData,
+} from "../lib/anthropic-types.ts";
+import type { ChatCompletionsPayload } from "../lib/openai-types.ts";
+import { translateChatToMessages } from "../lib/translate/chat-to-messages.ts";
+import { translateMessagesToChatCompletion } from "../lib/translate/messages-to-chat.ts";
+import {
+  createChatStreamState,
+  translateAnthropicEventToChatChunks,
+} from "../lib/translate/messages-to-chat-stream.ts";
+
+const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 
 /** Detect if request body contains image content */
 function hasVision(body: Record<string, unknown>): boolean {
@@ -14,10 +30,6 @@ function hasVision(body: Record<string, unknown>): boolean {
       (part: { type?: string }) => part.type === "image_url",
     );
   });
-}
-
-function isClaude(model: string): boolean {
-  return model.startsWith("claude");
 }
 
 // deno-lint-ignore no-explicit-any
@@ -103,43 +115,139 @@ function fixStream(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array>
 export const chatCompletions = async (c: Context) => {
   try {
     const body = await c.req.json();
-    const vision = hasVision(body);
-    const needsFix = isClaude(body.model ?? "");
     const { token: githubToken, accountType } = await getGithubCredentials();
 
-    const resp = await copilotFetch(
-      "/chat/completions",
-      { method: "POST", body: JSON.stringify(body) },
-      githubToken,
-      accountType,
-      { vision },
-    );
-
-    const contentType =
-      resp.headers.get("content-type") ?? "application/json";
-
-    if (contentType.includes("text/event-stream")) {
-      const stream = needsFix && resp.body ? fixStream(resp.body) : resp.body;
-      return new Response(stream, {
-        status: resp.status,
-        headers: {
-          "content-type": "text/event-stream",
-          "cache-control": "no-cache",
-        },
-      });
+    if (await shouldUseMessagesApi(body.model ?? "", githubToken, accountType)) {
+      return await handleViaMessagesApi(c, body as ChatCompletionsPayload, githubToken, accountType);
     }
 
-    if (needsFix && resp.status >= 200 && resp.status < 300) {
-      const data = await resp.json() as ChatResponse;
-      return c.json(mergeChoices(data), resp.status as 200);
-    }
-
-    return new Response(resp.body, {
-      status: resp.status,
-      headers: { "content-type": "application/json" },
-    });
+    return await handleViaCompletionsApi(c, body, githubToken, accountType);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return c.json({ error: { message: msg, type: "api_error" } }, 502);
   }
 };
+
+async function shouldUseMessagesApi(
+  modelId: string,
+  githubToken: string,
+  accountType: string,
+): Promise<boolean> {
+  const model = await findModel(modelId, githubToken, accountType);
+  if (model) {
+    const supportsMessages = model.supported_endpoints?.includes("/v1/messages") ?? false;
+    return supportsMessages;
+  }
+  // Fallback when models cache is unavailable
+  return modelId.startsWith("claude");
+}
+
+async function handleViaMessagesApi(
+  c: Context,
+  payload: ChatCompletionsPayload,
+  githubToken: string,
+  accountType: string,
+): Promise<Response> {
+  const anthropicPayload = translateChatToMessages(payload);
+  const vision = hasVision(payload as unknown as Record<string, unknown>);
+
+  const extraHeaders: Record<string, string> = {};
+  if (anthropicPayload.thinking?.budget_tokens) {
+    extraHeaders["anthropic-beta"] = INTERLEAVED_THINKING_BETA;
+  }
+
+  const resp = await copilotFetch(
+    "/v1/messages",
+    { method: "POST", body: JSON.stringify(anthropicPayload) },
+    githubToken,
+    accountType,
+    {
+      vision,
+      ...(Object.keys(extraHeaders).length > 0 && { extraHeaders }),
+    },
+  );
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    return c.json({ error: { message: `Upstream error: ${resp.status} ${text}`, type: "api_error" } }, 502);
+  }
+
+  // Non-streaming
+  if (!payload.stream) {
+    const anthropicResponse = await resp.json() as AnthropicResponse;
+    return c.json(translateMessagesToChatCompletion(anthropicResponse));
+  }
+
+  // Streaming
+  if (!resp.body) {
+    return c.json({ error: { message: "No response body from upstream", type: "api_error" } }, 502);
+  }
+
+  return streamSSE(c, async (stream) => {
+    const state = createChatStreamState();
+
+    for await (const rawEvent of parseSSEStream(resp.body!)) {
+      if (!rawEvent.data) continue;
+
+      let eventData: AnthropicStreamEventData;
+      try {
+        eventData = JSON.parse(rawEvent.data) as AnthropicStreamEventData;
+      } catch {
+        continue;
+      }
+
+      const result = translateAnthropicEventToChatChunks(eventData, state);
+
+      if (result === "DONE") {
+        await stream.writeSSE({ data: "[DONE]" });
+        break;
+      }
+
+      for (const chunk of result) {
+        await stream.writeSSE({ data: JSON.stringify(chunk) });
+      }
+    }
+  });
+}
+
+async function handleViaCompletionsApi(
+  c: Context,
+  body: Record<string, unknown>,
+  githubToken: string,
+  accountType: string,
+): Promise<Response> {
+  const vision = hasVision(body);
+  const needsFix = (typeof body.model === "string") && body.model.startsWith("claude");
+
+  const resp = await copilotFetch(
+    "/chat/completions",
+    { method: "POST", body: JSON.stringify(body) },
+    githubToken,
+    accountType,
+    { vision },
+  );
+
+  const contentType =
+    resp.headers.get("content-type") ?? "application/json";
+
+  if (contentType.includes("text/event-stream")) {
+    const stream = needsFix && resp.body ? fixStream(resp.body) : resp.body;
+    return new Response(stream, {
+      status: resp.status,
+      headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+      },
+    });
+  }
+
+  if (needsFix && resp.status >= 200 && resp.status < 300) {
+    const data = await resp.json() as ChatResponse;
+    return c.json(mergeChoices(data), resp.status as 200);
+  }
+
+  return new Response(resp.body, {
+    status: resp.status,
+    headers: { "content-type": "application/json" },
+  });
+}
