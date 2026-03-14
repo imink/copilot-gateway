@@ -148,7 +148,7 @@ async function handleViaMessagesApi(
   githubToken: string,
   accountType: string,
 ): Promise<Response> {
-  const anthropicPayload = translateChatToMessages(payload);
+  const anthropicPayload = await translateChatToMessages(payload);
   const vision = hasVision(payload as unknown as Record<string, unknown>);
 
   const extraHeaders: Record<string, string> = {};

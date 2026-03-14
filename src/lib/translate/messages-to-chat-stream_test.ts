@@ -50,6 +50,8 @@ Deno.test("initial state has correct defaults", () => {
   assertEquals(state.model, "");
   assertEquals(state.toolCallIndex, -1);
   assertEquals(state.currentBlockType, "");
+  assertEquals(state.inputTokens, 0);
+  assertEquals(state.cacheReadInputTokens, 0);
   assertEquals(typeof state.created, "number");
 });
 
@@ -67,11 +69,27 @@ Deno.test("message_start → chunk with role:assistant", () => {
   assertEquals(chunks[0].object, "chat.completion.chunk");
 });
 
-Deno.test("message_start sets state", () => {
+Deno.test("message_start sets state including usage", () => {
   const state = createChatStreamState();
   translateAnthropicEventToChatChunks(MSG_START, state);
   assertEquals(state.messageId, "msg_test");
   assertEquals(state.model, "claude-sonnet-4-20250514");
+  assertEquals(state.inputTokens, 10);
+  assertEquals(state.cacheReadInputTokens, 0);
+});
+
+Deno.test("message_start captures cache_read_input_tokens", () => {
+  const state = createChatStreamState();
+  const msgStart = MSG_START as { type: "message_start"; message: Record<string, unknown> };
+  translateAnthropicEventToChatChunks({
+    type: "message_start",
+    message: {
+      ...msgStart.message,
+      usage: { input_tokens: 80, output_tokens: 0, cache_read_input_tokens: 20 },
+    },
+  } as AnthropicStreamEventData, state);
+  assertEquals(state.inputTokens, 80);
+  assertEquals(state.cacheReadInputTokens, 20);
 });
 
 // ── content_block_start: text ──
@@ -241,9 +259,9 @@ Deno.test("content_block_stop → no output, resets block type", () => {
 
 // ── message_delta ──
 
-Deno.test("message_delta with end_turn → finish_reason stop", () => {
+Deno.test("message_delta with end_turn → finish_reason stop + usage with input_tokens", () => {
   const state = createChatStreamState();
-  translateAnthropicEventToChatChunks(MSG_START, state);
+  translateAnthropicEventToChatChunks(MSG_START, state); // input_tokens: 10
   const result = translateAnthropicEventToChatChunks({
     type: "message_delta",
     delta: { stop_reason: "end_turn" },
@@ -252,7 +270,10 @@ Deno.test("message_delta with end_turn → finish_reason stop", () => {
   const chunks = result as ChatCompletionChunk[];
   assertEquals(chunks.length, 1);
   assertEquals(chunks[0].choices[0].finish_reason, "stop");
+  assertEquals(chunks[0].usage!.prompt_tokens, 10);
   assertEquals(chunks[0].usage!.completion_tokens, 50);
+  assertEquals(chunks[0].usage!.total_tokens, 60);
+  assertEquals(chunks[0].usage!.prompt_tokens_details, undefined);
 });
 
 Deno.test("message_delta with tool_use → finish_reason tool_calls", () => {
@@ -313,6 +334,29 @@ Deno.test("message_delta without usage → no usage on chunk", () => {
     delta: { stop_reason: "end_turn" },
   }, state);
   assertEquals((result as ChatCompletionChunk[])[0].usage, undefined);
+});
+
+Deno.test("message_delta usage includes cache_read_input_tokens from message_start", () => {
+  const state = createChatStreamState();
+  // message_start with cache
+  translateAnthropicEventToChatChunks({
+    type: "message_start",
+    message: {
+      ...(MSG_START as { type: "message_start"; message: Record<string, unknown> }).message,
+      usage: { input_tokens: 80, output_tokens: 0, cache_read_input_tokens: 20 },
+    },
+  } as AnthropicStreamEventData, state);
+
+  const result = translateAnthropicEventToChatChunks({
+    type: "message_delta",
+    delta: { stop_reason: "end_turn" },
+    usage: { output_tokens: 50 },
+  }, state);
+  const chunk = (result as ChatCompletionChunk[])[0];
+  assertEquals(chunk.usage!.prompt_tokens, 100); // 80 + 20
+  assertEquals(chunk.usage!.completion_tokens, 50);
+  assertEquals(chunk.usage!.total_tokens, 150);
+  assertEquals(chunk.usage!.prompt_tokens_details!.cached_tokens, 20);
 });
 
 // ── message_stop ──

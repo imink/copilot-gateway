@@ -20,9 +20,13 @@ import type {
 } from "../openai-types.ts";
 import { safeJsonParse } from "./utils.ts";
 
-export function translateChatToMessages(
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/jpeg", "image/png", "image/gif", "image/webp",
+]);
+
+export async function translateChatToMessages(
   payload: ChatCompletionsPayload,
-): AnthropicMessagesPayload {
+): Promise<AnthropicMessagesPayload> {
   const systemParts: string[] = [];
   const nonSystemMessages: Message[] = [];
 
@@ -43,7 +47,7 @@ export function translateChatToMessages(
     }
   }
 
-  const anthropicMessages = buildMessages(nonSystemMessages);
+  const anthropicMessages = await buildMessages(nonSystemMessages);
 
   const result: AnthropicMessagesPayload = {
     model: payload.model,
@@ -79,13 +83,13 @@ export function translateChatToMessages(
   return result;
 }
 
-function buildMessages(messages: Message[]): AnthropicMessage[] {
+async function buildMessages(messages: Message[]): Promise<AnthropicMessage[]> {
   const result: AnthropicMessage[] = [];
 
   for (const msg of messages) {
     switch (msg.role) {
       case "user":
-        appendUserContent(result, convertUserContent(msg));
+        appendUserContent(result, await convertUserContent(msg));
         break;
       case "assistant":
         result.push({ role: "assistant", content: buildAssistantBlocks(msg) });
@@ -131,7 +135,7 @@ function appendToolResult(
   }
 }
 
-function convertUserContent(msg: Message): AnthropicUserContentBlock[] {
+async function convertUserContent(msg: Message): Promise<AnthropicUserContentBlock[]> {
   if (typeof msg.content === "string") {
     return [{ type: "text", text: msg.content }];
   }
@@ -139,25 +143,85 @@ function convertUserContent(msg: Message): AnthropicUserContentBlock[] {
     return [{ type: "text", text: "" }];
   }
 
-  const blocks: AnthropicUserContentBlock[] = [];
-  for (const part of msg.content as ContentPart[]) {
-    if (part.type === "text") {
-      blocks.push({ type: "text", text: part.text });
-    } else if (part.type === "image_url") {
-      const parsed = parseDataUrl(part.image_url.url);
-      if (parsed) {
-        blocks.push({
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: parsed.mediaType as AnthropicImageBlock["source"]["media_type"],
-            data: parsed.data,
-          },
-        });
+  const resolved = await Promise.all(
+    (msg.content as ContentPart[]).map((part) => {
+      if (part.type === "text") {
+        return Promise.resolve({ type: "text" as const, text: part.text } as AnthropicUserContentBlock);
       }
-    }
-  }
+      if (part.type === "image_url") {
+        return resolveImage(part.image_url.url);
+      }
+      return Promise.resolve(null);
+    }),
+  );
+
+  const blocks = resolved.filter((b): b is AnthropicUserContentBlock => b !== null);
   return blocks.length > 0 ? blocks : [{ type: "text", text: "" }];
+}
+
+/** Resolve an image URL to an Anthropic image block. Supports data: URLs and HTTP(S) fetch. */
+async function resolveImage(url: string): Promise<AnthropicImageBlock | null> {
+  // Fast path: data: URL (no fetch needed)
+  const dataUrl = parseDataUrl(url);
+  if (dataUrl) {
+    if (!ALLOWED_IMAGE_TYPES.has(dataUrl.mediaType)) return null;
+    return {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: dataUrl.mediaType as AnthropicImageBlock["source"]["media_type"],
+        data: dataUrl.data,
+      },
+    };
+  }
+
+  // HTTP(S) fetch
+  if (!url.startsWith("http://") && !url.startsWith("https://")) return null;
+  return await fetchImageAsBase64(url);
+}
+
+async function fetchImageAsBase64(url: string): Promise<AnthropicImageBlock | null> {
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+    if (!resp.ok) return null;
+
+    let mediaType = resp.headers.get("content-type")?.split(";")[0].trim() ?? "";
+    if (!ALLOWED_IMAGE_TYPES.has(mediaType)) {
+      mediaType = inferMediaTypeFromUrl(url) ?? "";
+    }
+    if (!ALLOWED_IMAGE_TYPES.has(mediaType)) return null;
+
+    const buffer = await resp.arrayBuffer();
+    return {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: mediaType as AnthropicImageBlock["source"]["media_type"],
+        data: uint8ArrayToBase64(new Uint8Array(buffer)),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function inferMediaTypeFromUrl(url: string): string | null {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+    if (path.endsWith(".png")) return "image/png";
+    if (path.endsWith(".gif")) return "image/gif";
+    if (path.endsWith(".webp")) return "image/webp";
+  } catch { /* invalid URL */ }
+  return null;
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 /** Build assistant content blocks in strict order: thinking → text → tool_use */
