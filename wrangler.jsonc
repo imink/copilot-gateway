@@ -3,7 +3,7 @@
   "name": "copilot",
   "main": "entry-cloudflare.ts",
   "compatibility_date": "2025-01-01",
-  "account_id": "a49c8a74b8cbc962ad459cc234e9011a",
+  "account_id": "c20aaa47c1d22b4fa49f69b40f5f1901",
   "d1_databases": [
     {
       "binding": "DB",
