@@ -8,7 +8,7 @@
     {
       "binding": "DB",
       "database_name": "copilot-db",
-      "database_id": "927eca3e-9dcb-4574-afba-89b051db66cf",
+      "database_id": "bd4f44dd-b7ae-4495-bbc2-fea04c04207e",
       "migrations_dir": "migrations"
     }
   ]
