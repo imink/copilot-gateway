@@ -87,28 +87,56 @@ class D1GitHubRepo implements GitHubRepo {
   constructor(private db: D1Database) {}
 
   async listAccounts(): Promise<GitHubAccount[]> {
-    const { results } = await this.db
-      .prepare("SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts")
-      .all<{ user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }>();
-    return results.map(toGitHubAccount);
+    try {
+      const { results } = await this.db
+        .prepare("SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts")
+        .all<{ user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }>();
+      return results.map(toGitHubAccount);
+    } catch (error) {
+      if (!isMissingGithubAccountTypeColumnError(error)) throw error;
+      const { results } = await this.db
+        .prepare("SELECT user_id, token, login, name, avatar_url FROM github_accounts")
+        .all<{ user_id: number; token: string; login: string; name: string | null; avatar_url: string }>();
+      return results.map(toLegacyGitHubAccount);
+    }
   }
 
   async getAccount(userId: number): Promise<GitHubAccount | null> {
-    const row = await this.db
-      .prepare("SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts WHERE user_id = ?")
-      .bind(userId)
-      .first<{ user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }>();
-    return row ? toGitHubAccount(row) : null;
+    try {
+      const row = await this.db
+        .prepare("SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts WHERE user_id = ?")
+        .bind(userId)
+        .first<{ user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }>();
+      return row ? toGitHubAccount(row) : null;
+    } catch (error) {
+      if (!isMissingGithubAccountTypeColumnError(error)) throw error;
+      const row = await this.db
+        .prepare("SELECT user_id, token, login, name, avatar_url FROM github_accounts WHERE user_id = ?")
+        .bind(userId)
+        .first<{ user_id: number; token: string; login: string; name: string | null; avatar_url: string }>();
+      return row ? toLegacyGitHubAccount(row) : null;
+    }
   }
 
   async saveAccount(userId: number, account: GitHubAccount): Promise<void> {
-    await this.db
-      .prepare(
-        `INSERT INTO github_accounts (user_id, token, account_type, login, name, avatar_url) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT (user_id) DO UPDATE SET token = excluded.token, account_type = excluded.account_type, login = excluded.login, name = excluded.name, avatar_url = excluded.avatar_url`,
-      )
-      .bind(userId, account.token, account.accountType, account.user.login, account.user.name, account.user.avatar_url)
-      .run();
+    try {
+      await this.db
+        .prepare(
+          `INSERT INTO github_accounts (user_id, token, account_type, login, name, avatar_url) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (user_id) DO UPDATE SET token = excluded.token, account_type = excluded.account_type, login = excluded.login, name = excluded.name, avatar_url = excluded.avatar_url`,
+        )
+        .bind(userId, account.token, account.accountType, account.user.login, account.user.name, account.user.avatar_url)
+        .run();
+    } catch (error) {
+      if (!isMissingGithubAccountTypeColumnError(error)) throw error;
+      await this.db
+        .prepare(
+          `INSERT INTO github_accounts (user_id, token, login, name, avatar_url) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (user_id) DO UPDATE SET token = excluded.token, login = excluded.login, name = excluded.name, avatar_url = excluded.avatar_url`,
+        )
+        .bind(userId, account.token, account.user.login, account.user.name, account.user.avatar_url)
+        .run();
+    }
   }
 
   async deleteAccount(userId: number): Promise<void> {
@@ -153,6 +181,25 @@ function toGitHubAccount(row: { user_id: number; token: string; account_type: st
       avatar_url: row.avatar_url,
     },
   };
+}
+
+function toLegacyGitHubAccount(row: { user_id: number; token: string; login: string; name: string | null; avatar_url: string }): GitHubAccount {
+  return {
+    token: row.token,
+    accountType: "individual",
+    user: {
+      id: row.user_id,
+      login: row.login,
+      name: row.name,
+      avatar_url: row.avatar_url,
+    },
+  };
+}
+
+function isMissingGithubAccountTypeColumnError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes("no such column: account_type") ||
+    error.message.includes("has no column named account_type");
 }
 
 class D1UsageRepo implements UsageRepo {

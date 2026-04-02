@@ -53,6 +53,9 @@ export const copilotQuota = async (c: Context) => {
     return c.json(data);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "No GitHub account connected — add one via the dashboard") {
+      return c.json({ error: msg }, 409);
+    }
     return c.json({ error: msg }, 502);
   }
 };

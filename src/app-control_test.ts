@@ -87,3 +87,18 @@ Deno.test("/api/token-usage is visible to any authenticated user and includes al
   assertExists(body.find((record: { keyId: string }) => record.keyId === apiKey.id));
   assertExists(body.find((record: { keyId: string }) => record.keyId === "key_other"));
 });
+
+Deno.test("/api/copilot-quota returns 409 when no GitHub account is connected", async () => {
+  const { repo, adminKey, githubAccount } = await setupAppTest();
+  await repo.github.deleteAccount(githubAccount.user.id);
+  await repo.github.clearActiveId();
+
+  const response = await requestApp("/api/copilot-quota", {
+    headers: { "x-api-key": adminKey },
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    error: "No GitHub account connected — add one via the dashboard",
+  });
+});
