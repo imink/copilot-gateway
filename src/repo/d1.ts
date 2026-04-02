@@ -32,24 +32,54 @@ class D1ApiKeyRepo implements ApiKeyRepo {
 
   async list(): Promise<ApiKey[]> {
     const { results } = await this.db
-      .prepare("SELECT id, name, key, created_at, last_used_at FROM api_keys ORDER BY created_at")
-      .all<{ id: string; name: string; key: string; created_at: string; last_used_at: string | null }>();
+      .prepare(
+        "SELECT id, name, key, created_at, last_used_at FROM api_keys ORDER BY created_at",
+      )
+      .all<
+        {
+          id: string;
+          name: string;
+          key: string;
+          created_at: string;
+          last_used_at: string | null;
+        }
+      >();
     return results.map(toApiKey);
   }
 
   async findByRawKey(rawKey: string): Promise<ApiKey | null> {
     const row = await this.db
-      .prepare("SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE key = ?")
+      .prepare(
+        "SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE key = ?",
+      )
       .bind(rawKey)
-      .first<{ id: string; name: string; key: string; created_at: string; last_used_at: string | null }>();
+      .first<
+        {
+          id: string;
+          name: string;
+          key: string;
+          created_at: string;
+          last_used_at: string | null;
+        }
+      >();
     return row ? toApiKey(row) : null;
   }
 
   async getById(id: string): Promise<ApiKey | null> {
     const row = await this.db
-      .prepare("SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE id = ?")
+      .prepare(
+        "SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE id = ?",
+      )
       .bind(id)
-      .first<{ id: string; name: string; key: string; created_at: string; last_used_at: string | null }>();
+      .first<
+        {
+          id: string;
+          name: string;
+          key: string;
+          created_at: string;
+          last_used_at: string | null;
+        }
+      >();
     return row ? toApiKey(row) : null;
   }
 
@@ -64,7 +94,8 @@ class D1ApiKeyRepo implements ApiKeyRepo {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.prepare("DELETE FROM api_keys WHERE id = ?").bind(id).run();
+    const result = await this.db.prepare("DELETE FROM api_keys WHERE id = ?")
+      .bind(id).run();
     return (result.meta.changes as number ?? 0) > 0;
   }
 
@@ -73,7 +104,15 @@ class D1ApiKeyRepo implements ApiKeyRepo {
   }
 }
 
-function toApiKey(row: { id: string; name: string; key: string; created_at: string; last_used_at: string | null }): ApiKey {
+function toApiKey(
+  row: {
+    id: string;
+    name: string;
+    key: string;
+    created_at: string;
+    last_used_at: string | null;
+  },
+): ApiKey {
   return {
     id: row.id,
     name: row.name,
@@ -87,32 +126,117 @@ class D1GitHubRepo implements GitHubRepo {
   constructor(private db: D1Database) {}
 
   async listAccounts(): Promise<GitHubAccount[]> {
-    const { results } = await this.db
-      .prepare("SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts")
-      .all<{ user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }>();
-    return results.map(toGitHubAccount);
+    try {
+      const { results } = await this.db
+        .prepare(
+          "SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts",
+        )
+        .all<
+          {
+            user_id: number;
+            token: string;
+            account_type: string;
+            login: string;
+            name: string | null;
+            avatar_url: string;
+          }
+        >();
+      return results.map(toGitHubAccount);
+    } catch (error) {
+      if (!isMissingGitHubAccountTypeColumnError(error)) throw error;
+      const { results } = await this.db
+        .prepare(
+          "SELECT user_id, token, login, name, avatar_url FROM github_accounts",
+        )
+        .all<
+          {
+            user_id: number;
+            token: string;
+            login: string;
+            name: string | null;
+            avatar_url: string;
+          }
+        >();
+      return results.map(toLegacyGitHubAccount);
+    }
   }
 
   async getAccount(userId: number): Promise<GitHubAccount | null> {
-    const row = await this.db
-      .prepare("SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts WHERE user_id = ?")
-      .bind(userId)
-      .first<{ user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }>();
-    return row ? toGitHubAccount(row) : null;
+    try {
+      const row = await this.db
+        .prepare(
+          "SELECT user_id, token, account_type, login, name, avatar_url FROM github_accounts WHERE user_id = ?",
+        )
+        .bind(userId)
+        .first<
+          {
+            user_id: number;
+            token: string;
+            account_type: string;
+            login: string;
+            name: string | null;
+            avatar_url: string;
+          }
+        >();
+      return row ? toGitHubAccount(row) : null;
+    } catch (error) {
+      if (!isMissingGitHubAccountTypeColumnError(error)) throw error;
+      const row = await this.db
+        .prepare(
+          "SELECT user_id, token, login, name, avatar_url FROM github_accounts WHERE user_id = ?",
+        )
+        .bind(userId)
+        .first<
+          {
+            user_id: number;
+            token: string;
+            login: string;
+            name: string | null;
+            avatar_url: string;
+          }
+        >();
+      return row ? toLegacyGitHubAccount(row) : null;
+    }
   }
 
   async saveAccount(userId: number, account: GitHubAccount): Promise<void> {
-    await this.db
-      .prepare(
-        `INSERT INTO github_accounts (user_id, token, account_type, login, name, avatar_url) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT (user_id) DO UPDATE SET token = excluded.token, account_type = excluded.account_type, login = excluded.login, name = excluded.name, avatar_url = excluded.avatar_url`,
-      )
-      .bind(userId, account.token, account.accountType, account.user.login, account.user.name, account.user.avatar_url)
-      .run();
+    try {
+      await this.db
+        .prepare(
+          `INSERT INTO github_accounts (user_id, token, account_type, login, name, avatar_url) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (user_id) DO UPDATE SET token = excluded.token, account_type = excluded.account_type, login = excluded.login, name = excluded.name, avatar_url = excluded.avatar_url`,
+        )
+        .bind(
+          userId,
+          account.token,
+          account.accountType,
+          account.user.login,
+          account.user.name,
+          account.user.avatar_url,
+        )
+        .run();
+    } catch (error) {
+      if (!isMissingGitHubAccountTypeColumnError(error)) throw error;
+      await this.db
+        .prepare(
+          `INSERT INTO github_accounts (user_id, token, login, name, avatar_url) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (user_id) DO UPDATE SET token = excluded.token, login = excluded.login, name = excluded.name, avatar_url = excluded.avatar_url`,
+        )
+        .bind(
+          userId,
+          account.token,
+          account.user.login,
+          account.user.name,
+          account.user.avatar_url,
+        )
+        .run();
+    }
   }
 
   async deleteAccount(userId: number): Promise<void> {
-    await this.db.prepare("DELETE FROM github_accounts WHERE user_id = ?").bind(userId).run();
+    await this.db.prepare("DELETE FROM github_accounts WHERE user_id = ?").bind(
+      userId,
+    ).run();
   }
 
   async getActiveId(): Promise<number | null> {
@@ -133,16 +257,29 @@ class D1GitHubRepo implements GitHubRepo {
   }
 
   async clearActiveId(): Promise<void> {
-    await this.db.prepare("DELETE FROM config WHERE key = 'active_github_account'").run();
+    await this.db.prepare(
+      "DELETE FROM config WHERE key = 'active_github_account'",
+    ).run();
   }
 
   async deleteAllAccounts(): Promise<void> {
     await this.db.prepare("DELETE FROM github_accounts").run();
-    await this.db.prepare("DELETE FROM config WHERE key = 'active_github_account'").run();
+    await this.db.prepare(
+      "DELETE FROM config WHERE key = 'active_github_account'",
+    ).run();
   }
 }
 
-function toGitHubAccount(row: { user_id: number; token: string; account_type: string; login: string; name: string | null; avatar_url: string }): GitHubAccount {
+function toGitHubAccount(
+  row: {
+    user_id: number;
+    token: string;
+    account_type: string;
+    login: string;
+    name: string | null;
+    avatar_url: string;
+  },
+): GitHubAccount {
   return {
     token: row.token,
     accountType: row.account_type,
@@ -153,6 +290,35 @@ function toGitHubAccount(row: { user_id: number; token: string; account_type: st
       avatar_url: row.avatar_url,
     },
   };
+}
+
+function toLegacyGitHubAccount(
+  row: {
+    user_id: number;
+    token: string;
+    login: string;
+    name: string | null;
+    avatar_url: string;
+  },
+): GitHubAccount {
+  // Legacy D1 deployments may still be missing github_accounts.account_type;
+  // default to the original single-account behavior until the migration runs.
+  return {
+    token: row.token,
+    accountType: "individual",
+    user: {
+      id: row.user_id,
+      login: row.login,
+      name: row.name,
+      avatar_url: row.avatar_url,
+    },
+  };
+}
+
+function isMissingGitHubAccountTypeColumnError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes("no such column: account_type") ||
+    error.message.includes("has no column named account_type");
 }
 
 class D1UsageRepo implements UsageRepo {
@@ -178,15 +344,28 @@ class D1UsageRepo implements UsageRepo {
       .run();
   }
 
-  async query(opts: { keyId?: string; start: string; end: string }): Promise<UsageRecord[]> {
+  async query(
+    opts: { keyId?: string; start: string; end: string },
+  ): Promise<UsageRecord[]> {
     const sql = opts.keyId
       ? "SELECT key_id, model, hour, requests, input_tokens, output_tokens FROM usage WHERE key_id = ? AND hour >= ? AND hour < ? ORDER BY hour"
       : "SELECT key_id, model, hour, requests, input_tokens, output_tokens FROM usage WHERE hour >= ? AND hour < ? ORDER BY hour";
-    const binds = opts.keyId ? [opts.keyId, opts.start, opts.end] : [opts.start, opts.end];
+    const binds = opts.keyId
+      ? [opts.keyId, opts.start, opts.end]
+      : [opts.start, opts.end];
     const { results } = await this.db
       .prepare(sql)
       .bind(...binds)
-      .all<{ key_id: string; model: string; hour: string; requests: number; input_tokens: number; output_tokens: number }>();
+      .all<
+        {
+          key_id: string;
+          model: string;
+          hour: string;
+          requests: number;
+          input_tokens: number;
+          output_tokens: number;
+        }
+      >();
     return results.map((r) => ({
       keyId: r.key_id,
       model: r.model,
@@ -199,8 +378,19 @@ class D1UsageRepo implements UsageRepo {
 
   async listAll(): Promise<UsageRecord[]> {
     const { results } = await this.db
-      .prepare("SELECT key_id, model, hour, requests, input_tokens, output_tokens FROM usage ORDER BY hour")
-      .all<{ key_id: string; model: string; hour: string; requests: number; input_tokens: number; output_tokens: number }>();
+      .prepare(
+        "SELECT key_id, model, hour, requests, input_tokens, output_tokens FROM usage ORDER BY hour",
+      )
+      .all<
+        {
+          key_id: string;
+          model: string;
+          hour: string;
+          requests: number;
+          input_tokens: number;
+          output_tokens: number;
+        }
+      >();
     return results.map((r) => ({
       keyId: r.key_id,
       model: r.model,
@@ -220,7 +410,14 @@ class D1UsageRepo implements UsageRepo {
            input_tokens = excluded.input_tokens,
            output_tokens = excluded.output_tokens`,
       )
-      .bind(record.keyId, record.model, record.hour, record.requests, record.inputTokens, record.outputTokens)
+      .bind(
+        record.keyId,
+        record.model,
+        record.hour,
+        record.requests,
+        record.inputTokens,
+        record.outputTokens,
+      )
       .run();
   }
 
@@ -233,13 +430,16 @@ class D1CacheRepo implements CacheRepo {
   constructor(private db: D1Database) {}
 
   async get(key: string): Promise<string | null> {
-    const row = await this.db.prepare("SELECT value FROM config WHERE key = ?").bind(key).first<{ value: string }>();
+    const row = await this.db.prepare("SELECT value FROM config WHERE key = ?")
+      .bind(key).first<{ value: string }>();
     return row?.value ?? null;
   }
 
   async set(key: string, value: string): Promise<void> {
     await this.db
-      .prepare("INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+      .prepare(
+        "INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+      )
       .bind(key, value)
       .run();
   }

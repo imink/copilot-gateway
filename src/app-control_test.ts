@@ -75,15 +75,37 @@ Deno.test("/api/token-usage is visible to any authenticated user and includes al
     outputTokens: 8,
   });
 
-  const response = await requestApp("/api/token-usage?start=2026-03-15T00&end=2026-03-16T00", {
-    headers: { "x-api-key": apiKey.key },
-  });
+  const response = await requestApp(
+    "/api/token-usage?start=2026-03-15T00&end=2026-03-16T00",
+    {
+      headers: { "x-api-key": apiKey.key },
+    },
+  );
 
   assertEquals(response.status, 200);
   const body = await response.json();
   assertEquals(body.length, 2);
   assertEquals(body[0].keyName, "Primary key");
   assertEquals(body[1].keyName, "Other key");
-  assertExists(body.find((record: { keyId: string }) => record.keyId === apiKey.id));
-  assertExists(body.find((record: { keyId: string }) => record.keyId === "key_other"));
+  assertExists(
+    body.find((record: { keyId: string }) => record.keyId === apiKey.id),
+  );
+  assertExists(
+    body.find((record: { keyId: string }) => record.keyId === "key_other"),
+  );
+});
+
+Deno.test("/api/copilot-quota returns 409 when no GitHub account is connected", async () => {
+  const { repo, adminKey, githubAccount } = await setupAppTest();
+  await repo.github.deleteAccount(githubAccount.user.id);
+  await repo.github.clearActiveId();
+
+  const response = await requestApp("/api/copilot-quota", {
+    headers: { "x-api-key": adminKey },
+  });
+
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), {
+    error: "No GitHub account connected — add one via the dashboard",
+  });
 });

@@ -173,8 +173,7 @@ export function dashboardAssets() {
           this.loadModels();
 
           if (this.tab === 'upstream' && this.isAdmin) {
-            this.loadMe();
-            this.loadUsage();
+            this.loadMe().then(() => this.loadUsage());
           } else if (this.tab === 'keys') {
             this.loadKeys();
           } else if (this.tab === 'usage') {
@@ -212,7 +211,7 @@ export function dashboardAssets() {
           this.tab = t;
           location.hash = '#' + t;
           if (t === 'upstream' && this.isAdmin) {
-            if (!this.meLoaded) this.loadMe();
+            if (!this.meLoaded) await this.loadMe();
             this.loadUsage();
           } else if (t === 'usage') {
             this.tokenLoading = true;
@@ -278,10 +277,22 @@ export function dashboardAssets() {
           },
 
           async loadUsage() {
+            if (!this.githubConnected) {
+              this.usageData = null;
+              this.usagePercent = 0;
+              this.usageError = false;
+              return;
+            }
             try {
               const resp = await fetch('/api/copilot-quota', { headers: this.authHeaders() });
               if (resp.status === 401) {
                 this.kickToLogin();
+                return;
+              }
+              if (resp.status === 409) {
+                this.usageData = null;
+                this.usagePercent = 0;
+                this.usageError = false;
                 return;
               }
               if (resp.ok) {
