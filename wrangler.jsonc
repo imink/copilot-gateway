@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "copilot",
+  "name": "copilot-gateway",
   "main": "entry-cloudflare.ts",
   "compatibility_date": "2025-01-01",
   "account_id": "c20aaa47c1d22b4fa49f69b40f5f1901",
