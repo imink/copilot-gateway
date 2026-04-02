@@ -163,67 +163,67 @@ export function dashboardAssets() {
           return 'export COPILOT_GATEWAY_API_KEY=' + this.activeKey;
         },
 
-          init() {
-            this.authKey = localStorage.getItem('authKey') || '';
-            if (!this.authKey) {
-              window.location.href = '/';
-              return;
-            }
+        init() {
+          this.authKey = localStorage.getItem('authKey') || '';
+          if (!this.authKey) {
+            window.location.href = '/';
+            return;
+          }
 
-            this.loadModels();
+          this.loadModels();
 
-            if (this.tab === 'upstream' && this.isAdmin) {
-              this.loadMe().then(() => this.loadUsage());
-            } else if (this.tab === 'keys') {
-              this.loadKeys();
-            } else if (this.tab === 'usage') {
-              this.tokenLoading = true;
-              this.fetchTokenData().then(() => {
-                if (this.tab === 'usage') {
-                  this.$nextTick().then(() => this.renderTokenChart());
-                }
-              });
-            }
-
-            setInterval(() => {
-              if (this.tab === 'upstream' && this.isAdmin) this.loadUsage();
-              if (this.tab === 'usage') this.loadTokenUsage();
-            }, 60000);
-
-            setInterval(() => {
-              this.now = Date.now();
-            }, 30000);
-
-            window.addEventListener('hashchange', () => {
-              const h = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : defaultTab;
-              if (this.tab !== h) this.switchTab(h);
-            });
-          },
-
-          authHeaders() { return { 'x-api-key': this.authKey }; },
-
-          async switchTab(t) {
-            if (t !== 'usage' && this.tokenChart) {
-              this.tokenChart.stop();
-              this.tokenChart.destroy();
-              this.tokenChart = null;
-            }
-            this.tab = t;
-            location.hash = '#' + t;
-            if (t === 'upstream' && this.isAdmin) {
-              if (!this.meLoaded) await this.loadMe();
-              this.loadUsage();
-            } else if (t === 'usage') {
-              this.tokenLoading = true;
-              await this.fetchTokenData();
+          if (this.tab === 'upstream' && this.isAdmin) {
+            this.loadMe().then(() => this.loadUsage());
+          } else if (this.tab === 'keys') {
+            this.loadKeys();
+          } else if (this.tab === 'usage') {
+            this.tokenLoading = true;
+            this.fetchTokenData().then(() => {
               if (this.tab === 'usage') {
-                await this.$nextTick();
-                this.renderTokenChart();
+                this.$nextTick().then(() => this.renderTokenChart());
               }
-            } else if (t === 'keys') {
-              await this.loadKeys();
+            });
+          }
+
+          setInterval(() => {
+            if (this.tab === 'upstream' && this.isAdmin) this.loadUsage();
+            if (this.tab === 'usage') this.loadTokenUsage();
+          }, 60000);
+
+          setInterval(() => {
+            this.now = Date.now();
+          }, 30000);
+
+          window.addEventListener('hashchange', () => {
+            const h = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : defaultTab;
+            if (this.tab !== h) this.switchTab(h);
+          });
+        },
+
+        authHeaders() { return { 'x-api-key': this.authKey }; },
+
+        async switchTab(t) {
+          if (t !== 'usage' && this.tokenChart) {
+            this.tokenChart.stop();
+            this.tokenChart.destroy();
+            this.tokenChart = null;
+          }
+          this.tab = t;
+          location.hash = '#' + t;
+          if (t === 'upstream' && this.isAdmin) {
+            if (!this.meLoaded) await this.loadMe();
+            this.loadUsage();
+          } else if (t === 'usage') {
+            this.tokenLoading = true;
+            await this.fetchTokenData();
+            if (this.tab === 'usage') {
+              await this.$nextTick();
+              this.renderTokenChart();
             }
-          },
+          } else if (t === 'keys') {
+            await this.loadKeys();
+          }
+        },
 
         async loadModels() {
           try {

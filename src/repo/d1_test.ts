@@ -1,12 +1,20 @@
 import { assertEquals } from "@std/assert";
-import { D1Repo, type D1Database } from "./d1.ts";
+import { type D1Database, D1Repo } from "./d1.ts";
 import type { GitHubAccount } from "./types.ts";
 
 interface FakePreparedStatement {
   bind(...values: unknown[]): FakePreparedStatement;
   first<T = Record<string, unknown>>(): Promise<T | null>;
-  all<T = Record<string, unknown>>(): Promise<{ results: T[]; success: boolean; meta: Record<string, unknown> }>;
-  run(): Promise<{ results: Record<string, unknown>[]; success: boolean; meta: Record<string, unknown> }>;
+  all<T = Record<string, unknown>>(): Promise<
+    { results: T[]; success: boolean; meta: Record<string, unknown> }
+  >;
+  run(): Promise<
+    {
+      results: Record<string, unknown>[];
+      success: boolean;
+      meta: Record<string, unknown>;
+    }
+  >;
 }
 
 function missingAccountTypeError(message: string): Error {
@@ -18,60 +26,87 @@ class LegacyGithubAccountsDb implements D1Database {
   private activeId: number | null = null;
 
   prepare(query: string): FakePreparedStatement {
-    const db = this;
     let boundValues: unknown[] = [];
-
-    return {
-      bind(...values: unknown[]) {
+    const statement: FakePreparedStatement = {
+      bind: (...values: unknown[]) => {
         boundValues = values;
-        return this;
+        return statement;
       },
-      async first<T>() {
+      first: <T>() => {
         if (query.includes("SELECT user_id, token, account_type")) {
-          throw missingAccountTypeError("no such column: account_type");
+          return Promise.reject(
+            missingAccountTypeError("no such column: account_type"),
+          );
         }
-        if (query.includes("SELECT user_id, token, login, name, avatar_url FROM github_accounts WHERE user_id = ?")) {
-          if (!db.account || db.account.user.id !== boundValues[0]) return null;
-          return {
-            user_id: db.account.user.id,
-            token: db.account.token,
-            login: db.account.user.login,
-            name: db.account.user.name,
-            avatar_url: db.account.user.avatar_url,
-          } as T;
+        if (
+          query.includes(
+            "SELECT user_id, token, login, name, avatar_url FROM github_accounts WHERE user_id = ?",
+          )
+        ) {
+          if (!this.account || this.account.user.id !== boundValues[0]) {
+            return Promise.resolve(null);
+          }
+          return Promise.resolve({
+            user_id: this.account.user.id,
+            token: this.account.token,
+            login: this.account.user.login,
+            name: this.account.user.name,
+            avatar_url: this.account.user.avatar_url,
+          } as T);
         }
-        if (query.includes("SELECT value FROM config WHERE key = 'active_github_account'")) {
-          return db.activeId == null ? null : { value: String(db.activeId) } as T;
+        if (
+          query.includes(
+            "SELECT value FROM config WHERE key = 'active_github_account'",
+          )
+        ) {
+          return Promise.resolve(
+            this.activeId == null
+              ? null
+              : { value: String(this.activeId) } as T,
+          );
         }
-        return null;
+        return Promise.resolve(null);
       },
-      async all<T>() {
+      all: <T>() => {
         if (query.includes("SELECT user_id, token, account_type")) {
-          throw missingAccountTypeError("no such column: account_type");
+          return Promise.reject(
+            missingAccountTypeError("no such column: account_type"),
+          );
         }
-        if (query.includes("SELECT user_id, token, login, name, avatar_url FROM github_accounts")) {
-          return {
-            results: db.account
+        if (
+          query.includes(
+            "SELECT user_id, token, login, name, avatar_url FROM github_accounts",
+          )
+        ) {
+          return Promise.resolve({
+            results: this.account
               ? [{
-                user_id: db.account.user.id,
-                token: db.account.token,
-                login: db.account.user.login,
-                name: db.account.user.name,
-                avatar_url: db.account.user.avatar_url,
+                user_id: this.account.user.id,
+                token: this.account.token,
+                login: this.account.user.login,
+                name: this.account.user.name,
+                avatar_url: this.account.user.avatar_url,
               } as T]
               : [],
             success: true,
             meta: {},
-          };
+          });
         }
-        return { results: [], success: true, meta: {} };
+        return Promise.resolve({ results: [], success: true, meta: {} });
       },
-      async run() {
-        if (query.includes("INSERT INTO github_accounts") && query.includes("account_type")) {
-          throw missingAccountTypeError("table github_accounts has no column named account_type");
+      run: () => {
+        if (
+          query.includes("INSERT INTO github_accounts") &&
+          query.includes("account_type")
+        ) {
+          return Promise.reject(
+            missingAccountTypeError(
+              "table github_accounts has no column named account_type",
+            ),
+          );
         }
         if (query.includes("INSERT INTO github_accounts")) {
-          db.account = {
+          this.account = {
             token: String(boundValues[1]),
             accountType: "individual",
             user: {
@@ -82,12 +117,18 @@ class LegacyGithubAccountsDb implements D1Database {
             },
           };
         }
-        if (query.includes("INSERT INTO config (key, value) VALUES ('active_github_account', ?)")) {
-          db.activeId = Number(boundValues[0]);
+        if (
+          query.includes(
+            "INSERT INTO config (key, value) VALUES ('active_github_account', ?)",
+          )
+        ) {
+          this.activeId = Number(boundValues[0]);
         }
-        return { results: [], success: true, meta: {} };
+        return Promise.resolve({ results: [], success: true, meta: {} });
       },
     };
+
+    return statement;
   }
 }
 
